@@ -7,31 +7,47 @@ import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 contract GPGWallet is EIP712 {
     address constant GPG_VERIFIER = address(0xed);
     mapping(address => bool) public signers;
+    mapping(bytes32 => bool) public usedDigests;
 
-    function addSigner(address signer, uint256 paymasterFee, bytes memory signature) public {
-        bytes32 digest = _hashTypedDataV4(getAddSignerStructHash(signer, paymasterFee));
+    function addSigner(address signer, uint256 paymasterFee, uint256 deadline, bytes32 salt, bytes memory signature) public {
+        require(deadline == 0 || deadline >= block.timestamp, "GPGWallet: deadline expired");
+
+        bytes32 digest = _hashTypedDataV4(getAddSignerStructHash(signer, paymasterFee, deadline, salt));
+        require(!usedDigests[digest], "GPGWallet: digest already used");
+        usedDigests[digest] = true;
+
         require(_isValidGPGSignature(digest, signature), "GPGWallet: invalid signature");
+
         if (paymasterFee > 0) _payPaymaster(paymasterFee);
+
         signers[signer] = true;
     }
 
-    function withdrawAll(address to, uint256 paymasterFee, bytes memory signature) public {
-        bytes32 digest = _hashTypedDataV4(getWithdrawAllStructHash(to));
+    function withdrawAll(address to, uint256 paymasterFee, uint256 deadline, bytes32 salt, bytes memory signature) public {
+        require(deadline == 0 || deadline >= block.timestamp, "GPGWallet: deadline expired");
+
+        bytes32 digest = _hashTypedDataV4(getWithdrawAllStructHash(to, paymasterFee, deadline, salt));
+        require(!usedDigests[digest], "GPGWallet: digest already used");
+        usedDigests[digest] = true;
+
         require(_isValidGPGSignature(digest, signature), "GPGWallet: invalid signature");
+
         if (paymasterFee > 0) _payPaymaster(paymasterFee);
 
-        (success, ) = to.call{value: address(this).balance}("");
-        require(success, "GPGWallet: withdraw failed");
+        _executeCall(to, address(this).balance, "");
     }
 
     function execute(address to, uint256 value, bytes memory data) public returns (bytes memory data) {
         require(signers[msg.sender], "GPGWallet: not a signer");
-        (success, data) = to.call{value: value}(data);
-        require(success, "GPGWallet: execution failed");
+        return _executeCall(to, value, data);
     }
 
-    function executeWithSig(address to, uint256 value, bytes memory data, uint256 paymasterFee, bytes memory signature, bool gpg) public {
-        bytes32 digest = _hashTypedDataV4(getExecuteStructHash(to, value, data, paymasterFee));
+    function executeWithSig(address to, uint256 value, bytes memory data, uint256 paymasterFee, uint256 deadline, bytes32 salt, bytes memory signature, bool gpg) public returns (bytes memory data) {
+        require(deadline == 0 || deadline >= block.timestamp, "GPGWallet: deadline expired");
+
+        bytes32 digest = _hashTypedDataV4(getExecuteStructHash(to, value, data, paymasterFee, deadline, salt));
+        require(!usedDigests[digest], "GPGWallet: digest already used");
+        usedDigests[digest] = true;
 
         if (gpg) {
             require(_isValidGPGSignature(digest, signature), "GPGWallet: invalid gpg signature");
@@ -41,8 +57,7 @@ contract GPGWallet is EIP712 {
 
         if (paymasterFee > 0) _payPaymaster(paymasterFee);
 
-        (success, ) = to.call{value: value}(data);
-        require(success, "GPGWallet: execution failed");
+        return _executeCall(to, value, data);
     }
 
     //////// INTERNAL ////////
@@ -60,6 +75,11 @@ contract GPGWallet is EIP712 {
         require(success, "GPGWallet: paymaster payment failed");
     }
 
+    function _executeCall(address to, uint256 value, bytes memory data) internal returns (bytes memory returndata) {
+        (success, returndata) = to.call{value: value}(data);
+        require(success, "GPGWallet: execution failed");
+    }
+
     //////// VIEWS ////////
 
     function publicKey() public pure returns (bytes memory) {
@@ -67,18 +87,18 @@ contract GPGWallet is EIP712 {
         return "";
     }
 
-    function getAddSignerStructHash(address signer, uint256 paymasterFee) public view returns (bytes32) {
-        bytes32 typehash = keccak256("AddSigner(address signer, uint256 paymasterFee)");
-        return keccak256(abi.encode(typehash, signer, paymasterFee));
+    function getAddSignerStructHash(address signer, uint256 paymasterFee, uint256 deadline, bytes32 salt) public view returns (bytes32) {
+        bytes32 typehash = keccak256("AddSigner(address signer, uint256 paymasterFee, uint256 deadline, bytes32 salt)");
+        return keccak256(abi.encode(typehash, signer, paymasterFee, deadline, salt));
     }
 
-    function getWithdrawAllStructHash(address signer, uint256 paymasterFee) public view returns (bytes32) {
-        bytes32 typehash = keccak256("WithdrawAll(address to, uint256 paymasterFee)");
-        return keccak256(abi.encode(typehash, signer, paymasterFee));
+    function getWithdrawAllStructHash(address to, uint256 paymasterFee, uint256 deadline, bytes32 salt) public view returns (bytes32) {
+        bytes32 typehash = keccak256("WithdrawAll(address to, uint256 paymasterFee, uint256 deadline, bytes32 salt)");
+        return keccak256(abi.encode(typehash, to, paymasterFee, deadline, salt));
     }
 
-    function getExecuteStructHash(address to, uint256 value, bytes memory data, uint256 paymasterFee) public view returns (bytes32) {
-        bytes32 typehash = keccak256("Execute(address to, uint256 value, bytes calldata, uint256 paymasterFee)");
-        return keccak256(abi.encode(typehash, to, value, keccak256(data), paymasterFee));
+    function getExecuteStructHash(address to, uint256 value, bytes memory data, uint256 paymasterFee, uint256 deadline, bytes32 salt) public view returns (bytes32) {
+        bytes32 typehash = keccak256("Execute(address to, uint256 value, bytes data, uint256 paymasterFee, uint256 deadline, bytes32 salt)");
+        return keccak256(abi.encode(typehash, to, value, keccak256(data), paymasterFee, deadline, salt));
     }
 }
