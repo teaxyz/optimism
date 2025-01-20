@@ -57,20 +57,18 @@ contract GasPriceOracle is TeaWAPOracle, ISemver {
     /// @return L1 fee that should be paid for the tx
     function getL1Fee(bytes memory _data) external view returns (uint256) {
         if (isFjord) {
-            return convertToTea(_getL1FeeFjord(_data));
+            return convertETHToTea(_getL1FeeFjord(_data));
         } else if (isEcotone) {
-            return convertToTea(_getL1FeeEcotone(_data));
+            return convertETHToTea(_getL1FeeEcotone(_data));
         }
-        return convertToTea(_getL1FeeBedrock(_data));
+        return convertETHToTea(_getL1FeeBedrock(_data));
     }
 
-    function getL1FeeFromRollupData(uint256, uint256, uint256 fastLzSize, bool isDepositTx)
-        external view returns (uint256 l1DataCost, uint256 estimatedGasUsed)
-    {
-        if (isDepositTx) return (0, 0);
-
-        l1DataCost = convertToTea(_fjordL1Cost(fastLzSize));
+    function getL1Fee(uint256 fastLzSize) external view returns (uint256, uint256) {
+        l1DataCost = convertETHToTea(_fjordL1Cost(fastLzSize));
         estimatedGasUsed = _fjordLinearRegression(_fastLzSize) * 16 / 1e6;
+
+        return (l1DataCost, estimatedGasUsed);
     }
 
     /// @notice returns an upper bound for the L1 fee for a given transaction size.
@@ -87,7 +85,7 @@ contract GasPriceOracle is TeaWAPOracle, ISemver {
         // txSize / 255 + 16 is the practical fastlz upper-bound covers %99.99 txs.
         uint256 flzUpperBound = txSize + txSize / 255 + 16;
 
-        return convertToTea(_fjordL1Cost(flzUpperBound));
+        return convertETHToTea(_fjordL1Cost(flzUpperBound));
     }
 
     /// @notice Set chain to be Ecotone chain (callable by depositor account)

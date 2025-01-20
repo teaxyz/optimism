@@ -119,8 +119,6 @@ contract L1Block is ISemver, IGasToken {
         batcherHash = _batcherHash;
         l1FeeOverhead = _l1FeeOverhead;
         l1FeeScalar = _l1FeeScalar;
-
-        _tryCacheLatestOraclePrice();
     }
 
     /// @notice Updates the L1 block values for an Ecotone upgraded chain.
@@ -137,7 +135,6 @@ contract L1Block is ISemver, IGasToken {
     ///   9. _batcherHash        Versioned hash to authenticate batcher by.
     function setL1BlockValuesEcotone() public {
         _setL1BlockValuesEcotone();
-        _tryCacheLatestOraclePrice();
     }
 
     /// @notice Updates the L1 block values for an Ecotone upgraded chain.
@@ -180,9 +177,5 @@ contract L1Block is ISemver, IGasToken {
         GasPayingToken.set({ _token: _token, _decimals: _decimals, _name: _name, _symbol: _symbol });
 
         emit GasPayingTokenSet({ token: _token, decimals: _decimals, name: _name, symbol: _symbol });
-    }
-
-    function _tryCacheLatestOraclePrice() internal {
-        (Predeploys.GAS_PRICE_ORACLE).call(abi.encodeWithSignature("cacheLatestOraclePrice()"));
     }
 }
