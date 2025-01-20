@@ -5,6 +5,7 @@ import { ISemver } from "src/universal/interfaces/ISemver.sol";
 import { Constants } from "src/libraries/Constants.sol";
 import { GasPayingToken, IGasToken } from "src/libraries/GasPayingToken.sol";
 import { NotDepositor } from "src/libraries/L1BlockErrors.sol";
+import { TeaWAPOracle } from "./TeaWAPOracle.sol";
 
 /// @custom:proxied true
 /// @custom:predeploy 0x4200000000000000000000000000000000000015
@@ -13,7 +14,7 @@ import { NotDepositor } from "src/libraries/L1BlockErrors.sol";
 ///         Values within this contract are updated once per epoch (every L1 block) and can only be
 ///         set by the "depositor" account, a special system address. Depositor account transactions
 ///         are created by the protocol whenever we move to a new epoch.
-contract L1Block is ISemver, IGasToken {
+contract L1Block is TeaWAPOracle, ISemver, IGasToken {
     /// @notice Event emitted when the gas paying token is set.
     event GasPayingTokenSet(address indexed token, uint8 indexed decimals, bytes32 name, bytes32 symbol);
 
@@ -177,5 +178,68 @@ contract L1Block is ISemver, IGasToken {
         GasPayingToken.set({ _token: _token, _decimals: _decimals, _name: _name, _symbol: _symbol });
 
         emit GasPayingTokenSet({ token: _token, decimals: _decimals, name: _name, symbol: _symbol });
+    }
+
+    /////////////////////////////////
+    /// L1 DATA COST CALCULATIONS ///
+    /////////////////////////////////
+
+    /// @notice The L1 Cost Intercept, defined in the Fjord spec.
+    uint256 public constant L1_COST_INTERCEPT_POSITIVE = 42_585_600;
+
+    /// @notice The L1 Cost FastLZ Coefficient, defined in the Fjord spec.
+    uint256 public constant L1_COST_FASTLZ_COEF = 836_500;
+
+    /// @notice The minimum transaction size, defined in the Fjord spec.
+    uint256 public constant MIN_TRANSACTION_SIZE_SCALED = 100 * 1e6;
+
+    /// @notice A backup TEA/ETH ratio, in the case that the oracle is not set
+    ///         and the fallback price is not set.
+    uint256 public constant BACKUP_TEA_PER_ETH = 1_500_000;
+
+    /// @notice The amount of $TEA required to pay L1 Data Costs for the transaction.
+    /// @param fastLzSize The size of the transaction after FastLZ compression (calculated in op-geth).
+    /// @param isDepositTx Whether the transaction is a deposit transaction.
+    /// @return l1DataCostTEA The amount of $TEA required to pay L1 Data Costs for the transaction.
+    /// @return l1GasUsed An estimate of how much L1 gas was used (used in L2 receipts).
+    /// @dev Called by the execution layer in L1CostFunc.
+    function getL1DataCost(uint256 /* ones */, uint256 /* zeros */, uint256 fastLzSize, bool isDepositTx)
+        external view returns (uint256 l1DataCostTEA, uint256 l1GasUsed)
+    {
+        // Deposit transactions are not included in blobs, so do not pay any L1 Data Cost.
+        if (isDepositTx) return (0, 0);
+
+        // Implement the Fjord calculation to determine the ETH L1 Data Cost.
+        uint256 l1DataCostETH;
+        (l1DataCostETH, l1GasUsed) = _calculateL1DataCostFjord(fastLzSize);
+
+        // Use TeaWAPOracle to adjust the cost from ETH to $TEA.
+        (uint256 nativeTokenPerETH, uint256 oracleDecimals) = _getTEAPerETH();
+        if (nativeTokenPerETH == 0) {
+            nativeTokenPerETH = BACKUP_TEA_PER_ETH;
+            oracleDecimals = 0;
+        }
+
+        l1DataCostTEA = l1DataCostETH * nativeTokenPerETH / (10 ** oracleDecimals);
+    }
+
+    // Implements: https://specs.optimism.io/protocol/fjord/exec-engine.html#fees
+    function _calculateL1DataCostFjord(uint256 fastLzSize) internal view returns (uint256, uint256) {
+        // Fjord L1 cost function:
+		// l1FeeScaled = baseFeeScalar*l1BaseFee*16 + blobFeeScalar*l1BlobBaseFee
+		// estimatedSize = max(minTransactionSize, intercept + fastlzCoef*fastlzSize)
+		// l1Cost = estimatedSize * l1FeeScaled / 1e12
+
+        uint256 cdCostPerByte = baseFeeScalar * basefee * 16;
+        uint256 blobCostPerByte = blobBaseFeeScalar * blobBaseFee;
+        uint256 l1FeeScaled = cdCostPerByte + blobCostPerByte;
+
+        uint256 estimatedSize = (fastLzSize * L1_COST_FASTLZ_COEF) - L1_COST_INTERCEPT_POSITIVE;
+        if (estimatedSize < MIN_TRANSACTION_SIZE_SCALED) estimatedSize = MIN_TRANSACTION_SIZE_SCALED;
+
+        uint256 l1Cost = l1FeeScaled * uint256(estimatedSize) / 1e12;
+        uint256 cdGasUsed = uint256(estimatedSize) * 16 / 1e6;
+
+        return (l1Cost, cdGasUsed);
     }
 }
