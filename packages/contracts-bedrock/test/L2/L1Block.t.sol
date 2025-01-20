@@ -202,17 +202,3 @@ contract L1BlockCustomGasToken_Test is L1BlockTest {
         l1Block.setGasPayingToken(address(this), 18, "Test", "TST");
     }
 }
-
-contract L1BlockGetL1DataCost is L1BlockTest {
-    // deposit tx returns 0s
-
-    // zero fastLzSize returns minimum (no fallback)
-
-    // zero fastLzSize returns minimum (with fallback)
-
-    // zero fastLzSize returns minimum (with oracle, maybe OP Mainnet fork?)
-
-    // one example of larger fastLzSize working as expected
-
-    // changing scalarys and base fees changes appropriately (fuzz?)
-}

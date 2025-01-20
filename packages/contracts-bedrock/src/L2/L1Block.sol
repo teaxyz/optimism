@@ -169,7 +169,6 @@ contract L1Block is ISemver, IGasToken {
             sstore(hash.slot, calldataload(100)) // bytes32
             sstore(batcherHash.slot, calldataload(132)) // bytes32
         }
-        _cacheLatestOraclePrice();
     }
 
     /// @notice Sets the gas paying token for the L2 system. Can only be called by the special
