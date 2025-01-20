@@ -9,6 +9,7 @@ import { Constants } from "src/libraries/Constants.sol";
 // Interfaces
 import { ISemver } from "src/universal/interfaces/ISemver.sol";
 import { IL1Block } from "src/L2/interfaces/IL1Block.sol";
+import { TeaWAPOracle } from "./TeaWAPOracle.sol";
 
 /// @custom:proxied true
 /// @custom:predeploy 0x420000000000000000000000000000000000000F
@@ -24,7 +25,7 @@ import { IL1Block } from "src/L2/interfaces/IL1Block.sol";
 ///         - event OverheadUpdated(uint256 overhead);
 ///         - event ScalarUpdated(uint256 scalar);
 ///         - event DecimalsUpdated(uint256 decimals);
-contract GasPriceOracle is ISemver {
+contract GasPriceOracle is TeaWAPOracle, ISemver {
     /// @notice Number of decimals used in the scalar.
     uint256 public constant DECIMALS = 6;
 
@@ -56,11 +57,20 @@ contract GasPriceOracle is ISemver {
     /// @return L1 fee that should be paid for the tx
     function getL1Fee(bytes memory _data) external view returns (uint256) {
         if (isFjord) {
-            return _getL1FeeFjord(_data);
+            return convertToTea(_getL1FeeFjord(_data));
         } else if (isEcotone) {
-            return _getL1FeeEcotone(_data);
+            return convertToTea(_getL1FeeEcotone(_data));
         }
-        return _getL1FeeBedrock(_data);
+        return convertToTea(_getL1FeeBedrock(_data));
+    }
+
+    function getL1FeeFromRollupData(uint256, uint256, uint256 fastLzSize, bool isDepositTx)
+        external view returns (uint256 l1DataCost, uint256 estimatedGasUsed)
+    {
+        if (isDepositTx) return (0, 0);
+
+        l1DataCost = convertToTea(_fjordL1Cost(fastLzSize));
+        estimatedGasUsed = _fjordLinearRegression(_fastLzSize) * 16 / 1e6;
     }
 
     /// @notice returns an upper bound for the L1 fee for a given transaction size.
@@ -77,7 +87,7 @@ contract GasPriceOracle is ISemver {
         // txSize / 255 + 16 is the practical fastlz upper-bound covers %99.99 txs.
         uint256 flzUpperBound = txSize + txSize / 255 + 16;
 
-        return _fjordL1Cost(flzUpperBound);
+        return convertToTea(_fjordL1Cost(flzUpperBound));
     }
 
     /// @notice Set chain to be Ecotone chain (callable by depositor account)

@@ -13,11 +13,19 @@ contract TeaWAPOracle {
     ////////////////////////////////
 
     /// @notice The storage slot that contains data about the TWAP
-    /// @dev  uint80(fallbackPrice) | uint8(fallbackPriceDecimals) | uint8(twapObservations) | address(oracle)
-    bytes32 internal constant CUSTOM_GAS_TOKEN_ORACLE_SLOT = bytes32(uint256(keccak256("opstack.customgastokenoracle")) - 1);
+    /// @dev  uint96(twapObservations) | address(oracle)
+    bytes32 internal constant CUSTOM_GAS_TOKEN_ORACLE_SLOT = bytes32(uint256(keccak256("opstack.customgastoken.oracle")) - 1);
 
-    /// @notice The number of decimals that the oracle's result will be returned in
-    uint256 constant ORACLE_DECIMALS = 18;
+    /// @notice The storage slot that contains the fallback price, set by admin
+    uint256 internal constant FALLBACK_PRICE_SLOT = bytes32(uint256(keccak256("opstack.customgastoken.fallbackprice")) - 1);
+
+    /// @notice The storage slot that contains the last known oracle price
+    /// @dev uint128(blockTime) | uint128(price)
+    uint256 internal constant CACHED_ORACLE_PRICE_SLOT = bytes32(uint256(keccak256("opstack.customgastoken.cachedprice")) - 1);
+
+    /// @notice A backup TEA/ETH ratio, in the case that the oracle is not set
+    ///         and the fallback price is not set.
+    uint256 public constant BACKUP_TEA_WEI_PER_ETH = 1_500_000e18;
 
     /// @notice Emitted when the oracle configuration is updated
     event VelodromeConfigUpdated(uint8 twapObservations, address oracle);
@@ -25,30 +33,62 @@ contract TeaWAPOracle {
     /// @notice Emitted when the fallback price is updated
     event FallbackPriceUpdated(uint80 price, uint8 decimals);
 
+    /// @notice Emitted when oracle price is cached
+    event OraclePriceCached(uint128 blockTime, uint128 price);
+
     ////////////////////////////////
     ///// ORACLE FUNCTIONALITY /////
     ////////////////////////////////
 
-    /// @dev If the oracle is not set, we will return fallback price & decimals.
-    ///      If the fallback price is not set, it will override with a backup in L1Block.sol.
-    function _getTEAPerETH() internal view returns (uint256, uint256) {
-        (uint80 fallbackPrice, uint8 fallbackDecimals, uint8 twapObservations, address oracle) = getOracleConfig();
+    /// @notice Cache the latest oracle price in storage.
+    /// @dev This price is used by the mempool to estimate L1 Data Costs when it doesn't have
+    ///      access to the EVM.
+    function cacheLatestOraclePrice() external {
+        require(msg.sender == Predeploys.L1_BLOCK_ATTRIBUTES, "TeaWAPOracle: L1Block only");
 
-        if (oracle == address(0)) return (fallbackPrice, fallbackDecimals);
+        uint256 price = _getPrice();
 
+        if (price > 0) {
+            _setCachedOraclePrice(uint128(block.timestamp), uint128(price));
+            emit OraclePriceCached(uint128(block.timestamp), uint128(price));
+        }
+    }
+
+    function convertToTea(uint256 amount) external view returns (uint256) {
+        return amount * _getTeaPerEth() / 1e18;
+    }
+
+    /// @notice Get the price of price of 1 Ether (1e18) in $TEA (18 decimals).
+    /// @dev If the oracle is not set, we will return fallback price (also in 18 decimals).
+    /// @dev If the fallback price is also not set, we will return a hardcoded backup.
+    function _getTeaPerEth() public view returns (uint256) {
+        (uint80 fallbackPrice, uint8 twapObservations, address oracle) = getOracleConfig();
+
+        if (fallbackPrice == 0) fallbackPrice = BACKUP_TEA_WEI_PER_ETH;
+
+        if (oracle == address(0)) return fallbackPrice;
+
+        (bool success, uint256 price) = _getPrice(oracle, twapObservations);
+
+        if (price == 0) return fallbackPrice;
+
+        return price;
+    }
+
+    function _getPrice(address oracle) internal view returns (uint256 price) {
         // https://github.com/velodrome-finance/contracts/blob/main/contracts/Pool.sol
         // quote(address tokenIn, uint256 amountIn, uint256 granularity)
         (bool success, bytes memory returndata) = oracle.staticcall(
             abi.encodeWithSignature(
                 "quote(address,uint256,uin256)",
-                Predeploys.WETH, 10 ** ORACLE_DECIMALS, twapObservations
+                Predeploys.WETH, 1e18, twapObservations
             )
         );
 
         // It will revert if we don't have sufficient data points saved.
-        if (!success || returndata.length < 32) return (fallbackPrice, fallbackDecimals);
+        if (!success || returndata.length < 32) return 0;
 
-        return (abi.decode(returndata, (uint256)), ORACLE_DECIMALS);
+        return abi.decode(returndata, (uint256));
     }
 
     ////////////////////////////////
@@ -85,24 +125,39 @@ contract TeaWAPOracle {
     ///// STORAGE READ / WRITE /////
     ////////////////////////////////
 
-    function getOracleConfig() public view returns (uint80, uint8, uint8, address) {
-        uint256 data = Storage.getUint(CUSTOM_GAS_TOKEN_ORACLE_SLOT);
-
-        uint80 fallbackPrice = uint80(data >> 176);
-        uint8 fallbackPriceDecimals = uint8(data >> 168);
-        uint8 twapObservations = uint8(data >> 160);
-        address oracle = address(uint160(data));
-
-        return (fallbackPrice, fallbackPriceDecimals, twapObservations, oracle);
+    function getFallbackPrice() public view returns (uint256) {
+        return Storage.getUint(FALLBACK_PRICE_SLOT);
     }
 
-    function _setOracleConfig(uint80 fallbackPrice, uint8 fallbackDecimals, uint8 twapObservations, address oracle) public {
-        uint256 value = (
-            uint256(fallbackPrice << 176) |
-            uint256(fallbackDecimals << 168) |
-            uint256(twapObservations << 160) |
-            uint256(uint160(oracle))
-        );
-        Storage.setUint(CUSTOM_GAS_TOKEN_ORACLE_SLOT, value);
+    function _setFallbackPrice(uint256 _price) internal {
+        Storage.setUint(FALLBACK_PRICE_SLOT, _price);
+    }
+
+    function getOracleConfig() public view returns (uint96, address) {
+        uint256 data = Storage.getUint(CUSTOM_GAS_TOKEN_ORACLE_SLOT);
+
+        uint8 twapObservations = uint96(data >> 160);
+        address oracle = address(uint160(data));
+
+        return (twapObservations, oracle);
+    }
+
+    function _setOracleConfig(uint96 _twapObservations, address _oracle) internal {
+        uint256 data = uint256(_twapObservations) << 160 | uint160(_oracle);
+        Storage.setUint(CUSTOM_GAS_TOKEN_ORACLE_SLOT, data);
+    }
+
+    function getCachedOraclePrice() public view returns (uint128, uint128) {
+        uint256 data = Storage.getUint(CACHED_ORACLE_PRICE_SLOT);
+
+        uint128 blockTime = uint128(data >> 128);
+        uint128 price = uint128(data);
+
+        return (blockTime, price);
+    }
+
+    function _setCachedOraclePrice(uint128 _blockTime, uint128 _price) internal {
+        uint256 data = uint256(_blockTime) << 128 | uint128(_price);
+        Storage.setUint(CACHED_ORACLE_PRICE_SLOT, data);
     }
 }
