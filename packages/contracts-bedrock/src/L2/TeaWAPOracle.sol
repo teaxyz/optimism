@@ -23,6 +23,10 @@ contract TeaWAPOracle {
     ///         and the fallback price is not set.
     uint256 public constant BACKUP_TEA_WEI_PER_ETH = 1_500_000e18;
 
+    /// @notice The minimum WETH balance of the pool needed for the oracle to be valid.
+    /// @dev If the pool has less than this WETH balance, it may be too easy to manipulate.
+    uint256 public constant MIN_WETH_BALANCE = 1e18;
+
     /// @notice Emitted when the oracle configuration is updated
     event OracleConfigUpdated(uint96 twapObservations, address oracle);
 
@@ -52,6 +56,10 @@ contract TeaWAPOracle {
 
         // If there is no oracle set, return the fallback price.
         if (oracle == address(0)) return fallbackPrice;
+
+        // If there is too little WETH in the pool, it may be manipulated.
+        // @todo any reason to use `reserves` from the pool instead?
+        if (IERC20(Predeploys.WETH).balanceOf(oracle) < MIN_WETH_BALANCE) return fallbackPrice;
 
         // Call the oracle to get the time weighted price.
         // https://github.com/velodrome-finance/contracts/blob/main/contracts/Pool.sol
