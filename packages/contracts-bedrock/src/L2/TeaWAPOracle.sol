@@ -17,7 +17,7 @@ contract TeaWAPOracle {
     bytes32 internal constant CUSTOM_GAS_TOKEN_ORACLE_SLOT = bytes32(uint256(keccak256("opstack.customgastoken.oracle")) - 1);
 
     /// @notice The storage slot that contains the fallback price, set by admin
-    uint256 internal constant FALLBACK_PRICE_SLOT = bytes32(uint256(keccak256("opstack.customgastoken.fallbackprice")) - 1);
+    bytes32 internal constant FALLBACK_PRICE_SLOT = bytes32(uint256(keccak256("opstack.customgastoken.fallbackprice")) - 1);
 
     /// @notice A backup TEA/ETH ratio, in the case that the oracle is not set
     ///         and the fallback price is not set.
@@ -35,7 +35,7 @@ contract TeaWAPOracle {
 
     /// @notice Convert the inputted amount of ETH (18 decimals) to $TEA
     /// @dev amount (18 decimals) * teaPerETH (18 decimals) / 1e18 = teaAmount (18 decimals)
-    function convertETHToTea(uint256 amount) external view returns (uint256) {
+    function convertETHToTea(uint256 amount) public view returns (uint256) {
         return amount * teaPerETH() / 1e18;
     }
 
@@ -97,7 +97,7 @@ contract TeaWAPOracle {
 
         _setFallbackPrice(_price);
 
-        emit FallbackPriceUpdated(_price, _decimals);
+        emit FallbackPriceUpdated(_price);
     }
 
     ////////////////////////////////
@@ -119,7 +119,7 @@ contract TeaWAPOracle {
     function getOracleConfig() public view returns (uint96, address) {
         uint256 data = Storage.getUint(CUSTOM_GAS_TOKEN_ORACLE_SLOT);
 
-        uint8 twapObservations = uint96(data >> 160);
+        uint96 twapObservations = uint96(data >> 160);
         address oracle = address(uint160(data));
 
         return (twapObservations, oracle);

@@ -65,8 +65,8 @@ contract GasPriceOracle is TeaWAPOracle, ISemver {
     }
 
     function getL1Fee(uint256 fastLzSize) external view returns (uint256, uint256) {
-        l1DataCost = convertETHToTea(_fjordL1Cost(fastLzSize));
-        estimatedGasUsed = _fjordLinearRegression(_fastLzSize) * 16 / 1e6;
+        uint256 l1DataCost = convertETHToTea(_fjordL1Cost(fastLzSize));
+        uint256 estimatedGasUsed = _fjordLinearRegression(fastLzSize) * 16 / 1e6;
 
         return (l1DataCost, estimatedGasUsed);
     }
