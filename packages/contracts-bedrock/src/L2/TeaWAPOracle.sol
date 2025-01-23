@@ -3,6 +3,7 @@ pragma solidity 0.8.15;
 
 import { Storage } from "src/libraries/Storage.sol";
 import { Predeploys } from "src/libraries/Predeploys.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 // todo: what if this is upgraded? before and after that tx will be different
 // this means option 2
