@@ -45,6 +45,13 @@ contract GasPriceOracle is TeaWAPOracle, ISemver {
     ///         are set to this value.
     uint256 private constant MIN_TRANSACTION_SIZE = 100;
 
+    /// @notice Event emitted when
+
+    /// @notice Event emitted if the oracle fails.
+    /// @dev This can be used by an off chain watcher to notify the team to
+    ///      investigate the oracle and ensure the fallback price is accurate.
+    event OracleReturnedFallbackPrice();
+
     /// @notice Indicates whether the network has gone through the Ecotone upgrade.
     bool public isEcotone;
 
@@ -64,11 +71,30 @@ contract GasPriceOracle is TeaWAPOracle, ISemver {
         return convertETHToTea(_getL1FeeBedrock(_data));
     }
 
-    function getL1Fee(uint256 fastLzSize) external view returns (uint256, uint256) {
-        uint256 l1DataCost = convertETHToTea(_fjordL1Cost(fastLzSize));
-        uint256 estimatedGasUsed = _fjordLinearRegression(fastLzSize) * 16 / 1e6;
+    /// @notice Pulls the latest price from the oracle and updates the ratio storage slot.
+    /// @dev This function CAN NOT revert, as it is called by the System TX when updating L1Block.sol.
+    function updateGasTokenPriceRatio() external {
+        require(msg.sender == Predeploys.L1_BLOCK_ATTRIBUTES, "GasPriceOracle: only L1_BLOCK_ATTRIBUTES can update");
 
-        return (l1DataCost, estimatedGasUsed);
+        // The oracle calculates the current price of 1e18 ETH in TEA (18 decimals).
+        uint160 currentPrice = teaPerETH();
+
+        // If the call didn't return the fallback price, it succeeded.
+        if (currentPrice != getFallbackPrice()) {
+            _setLatestPrice(currentPrice);
+        } else {
+            // If the call returned the fallback price, it failed.
+            emit OracleReturnedFallbackPrice();
+
+            // If the last result is from within the past 1 hour, keep it.
+            // Otherwise, replace it with currentPrice (fallback)
+            (uint96 lastUpdate, uint160 lastPrice) = getLatestPrice();
+            if (currentPrice != lastPrice) {
+                if (block.timestamp >= lastUpdate + MAX_ORACLE_DOWNTIME) {
+                    _setLatestPrice(currentPrice);
+                }
+            }
+        }
     }
 
     /// @notice returns an upper bound for the L1 fee for a given transaction size.

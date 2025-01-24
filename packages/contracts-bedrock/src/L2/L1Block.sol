@@ -5,6 +5,8 @@ import { ISemver } from "src/universal/interfaces/ISemver.sol";
 import { Constants } from "src/libraries/Constants.sol";
 import { GasPayingToken, IGasToken } from "src/libraries/GasPayingToken.sol";
 import { NotDepositor } from "src/libraries/L1BlockErrors.sol";
+import { Predeploys } from "src/libraries/Predeploys.sol";
+import { GasPriceOracle } from "./GasPriceOracle.sol";
 
 /// @custom:proxied true
 /// @custom:predeploy 0x4200000000000000000000000000000000000015
@@ -119,6 +121,9 @@ contract L1Block is ISemver, IGasToken {
         batcherHash = _batcherHash;
         l1FeeOverhead = _l1FeeOverhead;
         l1FeeScalar = _l1FeeScalar;
+
+        // This call must never revert.
+        GasPriceOracle(Predeploys.GAS_PRICE_ORACLE).updateGasTokenPriceRatio();
     }
 
     /// @notice Updates the L1 block values for an Ecotone upgraded chain.
@@ -135,6 +140,9 @@ contract L1Block is ISemver, IGasToken {
     ///   9. _batcherHash        Versioned hash to authenticate batcher by.
     function setL1BlockValuesEcotone() public {
         _setL1BlockValuesEcotone();
+
+        // This call must never revert.
+        GasPriceOracle(Predeploys.GAS_PRICE_ORACLE).updateGasTokenPriceRatio();
     }
 
     /// @notice Updates the L1 block values for an Ecotone upgraded chain.

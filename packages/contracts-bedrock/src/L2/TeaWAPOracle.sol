@@ -3,10 +3,9 @@ pragma solidity 0.8.15;
 
 import { Storage } from "src/libraries/Storage.sol";
 import { Predeploys } from "src/libraries/Predeploys.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-
-// todo: what if this is upgraded? before and after that tx will be different
-// this means option 2
+import { IVelodromePool } from "src/L2/interfaces/IVelodromePool.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { IERC20 } from "lib/forge-std/src/interfaces/IERC20.sol";
 
 contract TeaWAPOracle {
     ////////////////////////////////
@@ -15,18 +14,33 @@ contract TeaWAPOracle {
 
     /// @notice The storage slot that contains data about the TWAP
     /// @dev  uint96(twapObservations) | address(oracle)
-    bytes32 internal constant CUSTOM_GAS_TOKEN_ORACLE_SLOT = bytes32(uint256(keccak256("opstack.customgastoken.oracle")) - 1);
+    bytes32 public constant CUSTOM_GAS_TOKEN_ORACLE_SLOT = bytes32(uint256(keccak256("opstack.customgastoken.oracle")) - 1);
+
+    /// @notice The storage slot for the WETH address and its token position in the oracle
+    /// @dev bool(token0?) | address(WETH)
+    bytes32 public constant WETH_ADDRESS_SLOT = bytes32(uint256(keccak256("opstack.customgastoken.weth")) - 1);
+
+    /// @notice The storage slot for the latest price data
+    /// @dev uint96(latestTime) | uint160(latestPrice)
+    bytes32 public constant CUSTOM_GAS_TOKEN_PRICE_SLOT = bytes32(uint256(keccak256("opstack.customgastoken.price")) - 1);
 
     /// @notice The storage slot that contains the fallback price, set by admin
-    bytes32 internal constant FALLBACK_PRICE_SLOT = bytes32(uint256(keccak256("opstack.customgastoken.fallbackprice")) - 1);
+    bytes32 public constant FALLBACK_PRICE_SLOT = bytes32(uint256(keccak256("opstack.customgastoken.fallbackprice")) - 1);
 
     /// @notice A backup TEA/ETH ratio, in the case that the oracle is not set
     ///         and the fallback price is not set.
-    uint256 public constant BACKUP_TEA_WEI_PER_ETH = 1_500_000e18;
+    uint160 public constant BACKUP_TEA_WEI_PER_ETH = 1_500_000e18;
 
     /// @notice The minimum WETH balance of the pool needed for the oracle to be valid.
-    /// @dev If the pool has less than this WETH balance, it may be too easy to manipulate.
+    /// @dev If the pool has less than this balance, it may be too easy to manipulate.
     uint256 public constant MIN_WETH_BALANCE = 1e18;
+
+    /// @notice The maximum amount of time we will allow failed oracle calls before
+    ///         setting the storage value to the fallback.
+    uint256 public constant MAX_ORACLE_DOWNTIME = 1 hours;
+
+    /// @notice Emitted when the price is updated
+    event NewPriceSet(uint160 price);
 
     /// @notice Emitted when the oracle configuration is updated
     event OracleConfigUpdated(uint96 twapObservations, address oracle);
@@ -47,38 +61,52 @@ contract TeaWAPOracle {
     /// @notice Get the price of price of 1 Ether (1e18) in $TEA (18 decimals).
     /// @dev If the oracle is not set, we will return fallback price (also in 18 decimals).
     /// @dev If the fallback price is also not set, we will return a hardcoded backup.
-    function teaPerETH() public view returns (uint256) {
+    function teaPerETH() public view returns (uint160) {
         // Load oracle config from storage.
-        (uint96 twapObservations, address oracle) = getOracleConfig();
+        (
+            address oracle,
+            uint96 twapObservations,
+            bool wethT0,
+            address weth
+        ) = getOracleConfig();
 
-        // Load fallback price from storage. (If it hasn't been set, use hardcoded backup.)
-        uint256 fallbackPrice = getFallbackPrice();
-        if (fallbackPrice == 0) fallbackPrice = BACKUP_TEA_WEI_PER_ETH;
+        // Load fallback price from storage.
+        // If it hasn't been set, this will return hardcoded backup.
+        uint160 fallbackPrice = getFallbackPrice();
 
         // If there is no oracle set, return the fallback price.
         if (oracle == address(0)) return fallbackPrice;
 
-        // If there is too little WETH in the pool, it may be manipulated.
-        // @todo any reason to use `reserves` from the pool instead?
-        if (IERC20(Predeploys.WETH).balanceOf(oracle) < MIN_WETH_BALANCE) return fallbackPrice;
+        // If there is too little value in the pool, it may be manipulated.
+        (bool success, bytes memory returndata) = oracle.staticcall(
+            abi.encodeWithSignature("getReserves()")
+        );
+        if (!success || returndata.length != 96) return fallbackPrice;
+        (uint r0, uint r1,) = abi.decode(returndata, (uint, uint, uint));
+
+        // Use WETH reserves for this reliability, because it's the more stable token price.
+        uint256 wethReserves = wethT0 ? r0 : r1;
+        if (wethReserves < MIN_WETH_BALANCE) return fallbackPrice;
 
         // Call the oracle to get the time weighted price.
         // https://github.com/velodrome-finance/contracts/blob/main/contracts/Pool.sol
         // quote(address tokenIn, uint256 amountIn, uint256 granularity)
-        (bool success, bytes memory returndata) = oracle.staticcall(
+        (success, returndata) = oracle.staticcall(
             abi.encodeWithSignature(
-                "quote(address,uint256,uin256)",
-                Predeploys.WETH, 1e18, twapObservations
+                "quote(address,uint256,uint256)",
+                weth, 1e18, twapObservations
             )
         );
 
-        // Ensure this function doesn't revert.
         // It will revert if we don't have sufficient data points saved.
-        if (!success || returndata.length < 32) return 0;
+        if (!success || returndata.length < 32) return fallbackPrice;
 
-        // Return the price, or the fallback price if the price is 0.
+        // Return the price, or the fallback price if the price is out of range.
         uint256 price = abi.decode(returndata, (uint256));
-        return price > 0 ? price : fallbackPrice;
+        if (price == 0 || price > type(uint160).max) {
+            return fallbackPrice;
+        }
+        return uint160(price);
     }
 
     ////////////////////////////////
@@ -88,8 +116,7 @@ contract TeaWAPOracle {
     /// @param _twapObservations Number of observations to ask from the oracle
     /// @param _oracle Address of the oracle contract to use
     function setOracleConfig(uint96 _twapObservations, address _oracle) external  {
-        // todo: is this the right admin?
-        require(msg.sender == Predeploys.PROXY_ADMIN, "TeaWAPOracle: admin only");
+        require(msg.sender == Ownable(Predeploys.PROXY_ADMIN).owner(), "TeaWAPOracle: admin only");
         require(_oracle != address(0), "VelodromeOracle: zero address");
         require(_twapObservations > 0, "VelodromeOracle: zero observations");
 
@@ -100,8 +127,8 @@ contract TeaWAPOracle {
 
     /// @param _price Fallback price to use if oracle fails
     /// @dev Price should be set in wei of $TEA per 18 decimals of ETH
-    function setFallbackPrice(uint256 _price) external {
-        require(msg.sender == Predeploys.PROXY_ADMIN, "TeaWAPOracle: admin only");
+    function setFallbackPrice(uint160 _price) external {
+        require(msg.sender == Ownable(Predeploys.PROXY_ADMIN).owner(), "TeaWAPOracle: admin only");
         require(_price > 0, "VelodromeOracle: zero price");
 
         _setFallbackPrice(_price);
@@ -113,29 +140,79 @@ contract TeaWAPOracle {
     ///// STORAGE READ / WRITE /////
     ////////////////////////////////
 
-    /// @return The fallback price to use if the oracle fails
+    /// @return The latest price data from the oracle
     /// @dev Price is in wei of $TEA per 18 decimals of ETH
-    function getFallbackPrice() public view returns (uint256) {
-        return Storage.getUint(FALLBACK_PRICE_SLOT);
+    function getLatestPrice() public view returns (uint96, uint160) {
+        uint256 data = Storage.getUint(CUSTOM_GAS_TOKEN_PRICE_SLOT);
+
+        uint96 latestTime = uint96(data >> 160);
+        uint160 latestPrice = uint160(data);
+
+        return (latestTime, latestPrice);
     }
 
-    function _setFallbackPrice(uint256 _price) internal {
+    function _setLatestPrice(uint160 _price) internal {
+        uint256 data = uint256(block.timestamp) << 160 | uint160(_price);
+        Storage.setUint(CUSTOM_GAS_TOKEN_PRICE_SLOT, data);
+
+        emit NewPriceSet(_price);
+    }
+
+    /// @return The fallback price to use if the oracle fails
+    /// @dev Price is in wei of $TEA per 18 decimals of ETH
+    /// @dev If the fallback price isn't set, returns a hardcoded backup.
+    function getFallbackPrice() public view returns (uint160) {
+        uint256 fallbackPrice = Storage.getUint(FALLBACK_PRICE_SLOT);
+        if (fallbackPrice == 0) fallbackPrice = BACKUP_TEA_WEI_PER_ETH;
+
+        // This downcast is safe because the setter stores the value as a uint160.
+        return uint160(fallbackPrice);
+    }
+
+    function _setFallbackPrice(uint160 _price) internal {
         Storage.setUint(FALLBACK_PRICE_SLOT, _price);
     }
 
-    /// @return twapObservations The number of TWAP observations to use with the oracle
     /// @return oracle The address of the oracle contract that is being used
-    function getOracleConfig() public view returns (uint96, address) {
+    /// @return twapObservations The number of TWAP observations to use with the oracle
+    /// @return wethT0 Whether WETH is token0 in the oracle
+    /// @return weth The address of the WETH token in the oracle
+    function getOracleConfig() public view returns (address, uint96, bool, address) {
         uint256 data = Storage.getUint(CUSTOM_GAS_TOKEN_ORACLE_SLOT);
 
         uint96 twapObservations = uint96(data >> 160);
         address oracle = address(uint160(data));
 
-        return (twapObservations, oracle);
+        data = Storage.getUint(WETH_ADDRESS_SLOT);
+        address weth = address(uint160(data));
+        bool wethT0 = data >> 160 == 1;
+
+        return (oracle, twapObservations, wethT0, weth);
     }
 
     function _setOracleConfig(uint96 _twapObservations, address _oracle) internal {
-        uint256 data = uint256(_twapObservations) << 160 | uint160(_oracle);
-        Storage.setUint(CUSTOM_GAS_TOKEN_ORACLE_SLOT, data);
+        // These tokens should be WTEA and WETH.
+        (address t0, address t1) = IVelodromePool(_oracle).tokens();
+
+        // Predeploys.WETH is WTEA, which must be one of the two tokens.
+        // WETH should be at the opposite address.
+        address weth;
+        if (t0 == Predeploys.WETH) weth = t1;
+        else if (t1 == Predeploys.WETH) weth = t0;
+        else revert("TeaWAPOracle: WTEA not in pool");
+
+        bool wethT0 = weth == t0;
+
+        // Sanity check. This can of course be gamed, but is just meant to catch mistakes.
+        (, bytes memory bytesName) = weth.staticcall(abi.encodeWithSignature("name()"));
+        require(keccak256(bytesName) == keccak256(abi.encode("Wrapped Ether")));
+
+        Storage.setUint(CUSTOM_GAS_TOKEN_ORACLE_SLOT,
+            uint256(_twapObservations) << 160 | uint160(_oracle)
+        );
+
+        Storage.setUint(WETH_ADDRESS_SLOT,
+            uint256(wethT0 ? 1 : 0) << 160 | uint160(weth)
+        );
     }
 }
