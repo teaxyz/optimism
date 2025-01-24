@@ -5,7 +5,6 @@ import { Storage } from "src/libraries/Storage.sol";
 import { Predeploys } from "src/libraries/Predeploys.sol";
 import { IVelodromePool } from "src/L2/interfaces/IVelodromePool.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
-import { IERC20 } from "lib/forge-std/src/interfaces/IERC20.sol";
 
 contract TeaWAPOracle {
     ////////////////////////////////
@@ -20,7 +19,7 @@ contract TeaWAPOracle {
     /// @dev bool(token0?) | address(WETH)
     bytes32 public constant WETH_ADDRESS_SLOT = bytes32(uint256(keccak256("opstack.customgastoken.weth")) - 1);
 
-    /// @notice The storage slot for the latest price data
+    /// @notice The storage slot for the latest price
     /// @dev uint96(latestTime) | uint160(latestPrice)
     bytes32 public constant CUSTOM_GAS_TOKEN_PRICE_SLOT = bytes32(uint256(keccak256("opstack.customgastoken.price")) - 1);
 
