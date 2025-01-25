@@ -63,12 +63,13 @@ contract GasPriceOracle is TeaWAPOracle, ISemver {
     /// @param _data Unsigned fully RLP-encoded transaction to get the L1 fee for.
     /// @return L1 fee that should be paid for the tx
     function getL1Fee(bytes memory _data) external view returns (uint256) {
+        (, uint160 latestPrice) = getLatestPrice();
         if (isFjord) {
-            return convertETHToTea(_getL1FeeFjord(_data));
+            return latestPrice * _getL1FeeFjord(_data) / 1e18;
         } else if (isEcotone) {
-            return convertETHToTea(_getL1FeeEcotone(_data));
+            return latestPrice * _getL1FeeEcotone(_data) / 1e18;
         }
-        return convertETHToTea(_getL1FeeBedrock(_data));
+        return latestPrice * _getL1FeeBedrock(_data) / 1e18;
     }
 
     /// @notice Pulls the latest price from the oracle and updates the ratio storage slot.
@@ -111,7 +112,8 @@ contract GasPriceOracle is TeaWAPOracle, ISemver {
         // txSize / 255 + 16 is the practical fastlz upper-bound covers %99.99 txs.
         uint256 flzUpperBound = txSize + txSize / 255 + 16;
 
-        return convertETHToTea(_fjordL1Cost(flzUpperBound));
+        (, uint160 latestPrice) = getLatestPrice();
+        return latestPrice * _fjordL1Cost(flzUpperBound) / 1e18;
     }
 
     /// @notice Set chain to be Ecotone chain (callable by depositor account)
