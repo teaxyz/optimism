@@ -34,11 +34,19 @@ contract MockOracle {
         else return (0, 1e17, 0);
     }
 
+    function factory() public view returns (address) {
+        return address(this);
+    }
+
+    function paused() public view returns (bool) {
+        return false;
+    }
+
     function tokens() public view returns (address, address) {
         return (Predeploys.WETH, otherToken);
     }
 
-    function quote(address token, uint256 amount, uint256) external view returns (uint256) {
+    function quote(address token, uint256 amount, uint256) external pure returns (uint256) {
         if (token == Predeploys.WETH) {
             return amount / 2_000_000;
         } else {
@@ -80,31 +88,32 @@ contract TeaWAPOracle_Test is CommonTest {
 
     function testTeaWAP_SetUpOracle() public {
         vm.prank(Ownable(Predeploys.PROXY_ADMIN).owner());
-        gasPriceOracle.setOracleConfig(10, address(oracle));
+        gasPriceOracle.setOracleConfig(10, 1e18, address(oracle));
 
-        (address oracle_, uint96 twapObservations, bool wethT0, address weth_) = gasPriceOracle.getOracleConfig();
+        (address oracle_, uint16 twapObservations, uint80 minWethBalance, bool wethT0, address weth_) = gasPriceOracle.getOracleConfig();
         assertEq(oracle_, address(oracle));
         assertEq(twapObservations, 10);
+        assertEq(minWethBalance, 1e18);
         assertFalse(wethT0);
         assertEq(weth_, myWeth);
     }
 
     function testTeaWAP_GetPriceFromOracle() public {
         vm.prank(Ownable(Predeploys.PROXY_ADMIN).owner());
-        gasPriceOracle.setOracleConfig(10, address(oracle));
+        gasPriceOracle.setOracleConfig(10, 1e18, address(oracle));
 
         vm.prank(address(l1Block));
         gasPriceOracle.updateGasTokenPriceRatio();
 
         (uint96 ts, uint160 price) = gasPriceOracle.getLatestPrice();
         assert(ts == block.timestamp);
-        assert(price == oracle.quote(myWeth, 1e18, 10));
+        assert(price == 1e9 * oracle.quote(myWeth, 1e9, 10));
     }
 
     function testTeaWAP_FallbackIfBadReserves() public {
         MockOracle badResevesOracle = new MockOracle(myWeth, false);
         vm.prank(Ownable(Predeploys.PROXY_ADMIN).owner());
-        gasPriceOracle.setOracleConfig(10, address(badResevesOracle));
+        gasPriceOracle.setOracleConfig(10, 1e18, address(badResevesOracle));
 
         vm.prank(address(l1Block));
         gasPriceOracle.updateGasTokenPriceRatio();
@@ -116,7 +125,7 @@ contract TeaWAPOracle_Test is CommonTest {
 
     function testTeaWAP_StalePriceRevertToFallback() public {
         vm.prank(Ownable(Predeploys.PROXY_ADMIN).owner());
-        gasPriceOracle.setOracleConfig(10, address(oracle));
+        gasPriceOracle.setOracleConfig(10, 1e18, address(oracle));
 
         vm.prank(address(l1Block));
         gasPriceOracle.updateGasTokenPriceRatio();
@@ -128,8 +137,8 @@ contract TeaWAPOracle_Test is CommonTest {
         // now let's break the oracle
         vm.etch(address(oracle), abi.encode(""));
 
-        // after 59 minutes, should still skip
-        vm.warp(block.timestamp + 59 minutes);
+        // after 5 minutes, should still skip
+        vm.warp(block.timestamp + 5 minutes);
 
         vm.prank(address(l1Block));
         gasPriceOracle.updateGasTokenPriceRatio();
@@ -138,8 +147,8 @@ contract TeaWAPOracle_Test is CommonTest {
         assert(ts == newTs);
         assert(price == newPrice);
 
-        // but after an hour, we go to fallback
-        vm.warp(block.timestamp + 61);
+        // but anything past 5 mins, we go to fallback
+        vm.warp(block.timestamp + 1);
 
         vm.prank(address(l1Block));
         gasPriceOracle.updateGasTokenPriceRatio();
@@ -155,6 +164,6 @@ contract TeaWAPOracle_Test is CommonTest {
 
         vm.prank(Ownable(Predeploys.PROXY_ADMIN).owner());
         vm.expectRevert();
-        gasPriceOracle.setOracleConfig(10, address(nonWethOracle));
+        gasPriceOracle.setOracleConfig(10, 1e18, address(nonWethOracle));
     }
 }

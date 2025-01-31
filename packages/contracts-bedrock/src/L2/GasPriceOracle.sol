@@ -77,20 +77,20 @@ contract GasPriceOracle is TeaWAPOracle, ISemver {
         require(msg.sender == Predeploys.L1_BLOCK_ATTRIBUTES, "GasPriceOracle: only L1_BLOCK_ATTRIBUTES can update");
 
         // The oracle calculates the current price of 1e18 ETH in TEA (18 decimals).
-        uint160 currentPrice = teaPerETH();
+        (bool validPrice, uint160 currentPrice) = teaPerETH();
 
         // If the call didn't return the fallback price, it succeeded.
-        if (currentPrice != getFallbackPrice()) {
+        if (validPrice) {
             _setLatestPrice(currentPrice);
         } else {
             // If the call returned the fallback price, it failed.
             emit OracleReturnedFallbackPrice();
 
-            // If the last result is from within the past 1 hour, keep it.
+            // If the last result is from within the past `maxDowntime`, keep it.
             // Otherwise, replace it with currentPrice (fallback)
             (uint96 lastUpdate, uint160 lastPrice) = getLatestPrice();
             if (currentPrice != lastPrice) {
-                if (block.timestamp >= lastUpdate + MAX_ORACLE_DOWNTIME) {
+                if (block.timestamp > lastUpdate + MAX_ORACLE_DOWNTIME) {
                     _setLatestPrice(currentPrice);
                 }
             }
