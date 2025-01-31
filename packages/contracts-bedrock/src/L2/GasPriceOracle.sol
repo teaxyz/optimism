@@ -86,7 +86,7 @@ contract GasPriceOracle is TeaWAPOracle, ISemver {
             // If the call returned the fallback price, it failed.
             emit OracleReturnedFallbackPrice();
 
-            // If the last result is from within the past `maxDowntime`, keep it.
+            // If the last result is from within the past 5 minutes, keep it.
             // Otherwise, replace it with currentPrice (fallback)
             (uint96 lastUpdate, uint160 lastPrice) = getLatestPrice();
             if (currentPrice != lastPrice) {

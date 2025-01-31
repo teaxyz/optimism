@@ -12,7 +12,7 @@ contract TeaWAPOracle {
     ////////////////////////////////
 
     /// @notice The storage slot that contains data about the TWAP oracle
-    /// @dev  uint8(twapObservations) | uint16(maxDowntime) | uint72(minWethAmount) | address(oracle)
+    /// @dev  uint16(twapObservations) | uint80(minWethAmount) | address(oracle)
     bytes32 public constant CUSTOM_GAS_TOKEN_ORACLE_SLOT = bytes32(uint256(keccak256("tea.customgastoken.oracle")) - 1);
 
     /// @notice The storage slot for the WETH address and its token position in the oracle
