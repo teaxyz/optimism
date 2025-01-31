@@ -115,11 +115,15 @@ contract TeaWAPOracle {
         uint256 price = abi.decode(returndata, (uint256));
 
         // Price is in 1e9 because that was the quote requested.
-        // Multiply by 1e9 to convert to 18 decimals.
-        price = price * 1e9;
+        // Multiply by 1e9 to convert to 18 decimals (making sure no overflow).
+        oldPrice = price;
+        unchecked { price = price * 1e9; }
+        if (price < oldPrice) return (false, fallbackPrice);
+
         if (price == 0 || price > type(uint160).max) {
             return (false, fallbackPrice);
         }
+
         return (true, uint160(price));
     }
 
