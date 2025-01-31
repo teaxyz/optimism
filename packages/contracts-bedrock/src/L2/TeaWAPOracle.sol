@@ -116,7 +116,7 @@ contract TeaWAPOracle {
 
         // Price is in 1e9 because that was the quote requested.
         // Multiply by 1e9 to convert to 18 decimals (making sure no overflow).
-        oldPrice = price;
+        uint256 oldPrice = price;
         unchecked { price = price * 1e9; }
         if (price < oldPrice) return (false, fallbackPrice);
 
