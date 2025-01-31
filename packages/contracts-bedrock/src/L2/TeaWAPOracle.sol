@@ -79,13 +79,15 @@ contract TeaWAPOracle {
 
         // If Velodrome is paused, return the fallback price.
         (bool success, bytes memory returndata) = oracle.staticcall(abi.encodeWithSignature("factory()"));
-        if (!success || returndata.length != 32) return (false, fallbackPrice);
-        address factory = abi.decode(returndata, (address));
+        {
+            if (!success || returndata.length != 32) return (false, fallbackPrice);
+            address factory = abi.decode(returndata, (address));
 
-        (success, returndata) = factory.staticcall(abi.encodeWithSignature("paused()"));
-        if (!success || returndata.length != 32) return (false, fallbackPrice);
-        bool paused = abi.decode(returndata, (bool));
-        if (paused) return (false, fallbackPrice);
+            (success, returndata) = factory.staticcall(abi.encodeWithSignature("paused()"));
+            if (!success || returndata.length != 32) return (false, fallbackPrice);
+            bool paused = abi.decode(returndata, (bool));
+            if (paused) return (false, fallbackPrice);
+        }
 
         // If there is too little value in the pool, it may be manipulated.
         (success, returndata) = oracle.staticcall(
@@ -113,16 +115,18 @@ contract TeaWAPOracle {
 
         // Return the price, or the fallback price if the price is out of range.
         uint256 price = abi.decode(returndata, (uint256));
+        {
+            // Price is in 1e9 because that was the quote requested.
+            // Multiply by 1e9 to convert to 18 decimals (making sure no overflow).
+            uint256 oldPrice = price;
+            unchecked { price = price * 1e9; }
+            if (price < oldPrice) return (false, fallbackPrice);
 
-        // Price is in 1e9 because that was the quote requested.
-        // Multiply by 1e9 to convert to 18 decimals (making sure no overflow).
-        uint256 oldPrice = price;
-        unchecked { price = price * 1e9; }
-        if (price < oldPrice) return (false, fallbackPrice);
-
-        if (price == 0 || price > type(uint160).max) {
-            return (false, fallbackPrice);
+            if (price == 0 || price > type(uint160).max) {
+                return (false, fallbackPrice);
+            }
         }
+
 
         return (true, uint160(price));
     }
