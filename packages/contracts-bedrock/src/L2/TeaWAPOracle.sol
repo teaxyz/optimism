@@ -215,8 +215,8 @@ contract TeaWAPOracle {
     function getOracleConfig() public view returns (address, uint16, uint80, bool, address) {
         uint256 data = Storage.getUint(CUSTOM_GAS_TOKEN_ORACLE_SLOT);
 
-        uint16 twapObservations = uint8(data >> 240);
-        uint80 minWethBalance = uint72(data >> 160);
+        uint16 twapObservations = uint16(data >> 240);
+        uint80 minWethBalance = uint80(data >> 160);
         address oracle = address(uint160(data));
 
         data = Storage.getUint(WETH_ADDRESS_SLOT);
