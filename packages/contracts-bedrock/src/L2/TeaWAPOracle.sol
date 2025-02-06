@@ -34,6 +34,9 @@ contract TeaWAPOracle {
     ///         setting the storage value to the fallback.
     uint256 public constant MAX_ORACLE_DOWNTIME = 5 minutes;
 
+    /// @notice One billion (1e9), used for oracle calls and other calculations.
+    uint256 constant GWEI = 1e9;
+
     /// @notice Emitted when the price is updated
     event NewPriceSet(uint160 price);
 
@@ -106,7 +109,7 @@ contract TeaWAPOracle {
         (success, returndata) = oracle.staticcall(
             abi.encodeWithSignature(
                 "quote(address,uint256,uint256)",
-                weth, 1e9, twapObservations
+                weth, GWEI, twapObservations
             )
         );
 
@@ -116,15 +119,17 @@ contract TeaWAPOracle {
         // Return the price, or the fallback price if the price is out of range.
         uint256 price = abi.decode(returndata, (uint256));
         {
-            // Price is in 1e9 because that was the quote requested.
-            // Multiply by 1e9 to convert to 18 decimals (making sure no overflow).
-            uint256 oldPrice = price;
-            unchecked { price = price * 1e9; }
-            if (price < oldPrice) return (false, fallbackPrice);
+            // If the price is zero, return the fallback price.
+            if (price == 0) return (false, fallbackPrice);
 
-            if (price == 0 || price > type(uint160).max) {
-                return (false, fallbackPrice);
-            }
+            // Price is in GWEI because that was the quote requested.
+            // Multiply by GWEI to convert to 18 decimals (making sure no overflow).
+            uint256 oldPrice = price;
+            unchecked { price = price * GWEI; }
+            if (price / GWEI != oldPrice) return (false, fallbackPrice);
+
+            // If the new price is greater than the max uint160, return the fallback price.
+            if (price > type(uint160).max) return (false, fallbackPrice);
         }
 
 
