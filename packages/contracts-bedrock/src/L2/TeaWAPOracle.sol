@@ -83,7 +83,7 @@ contract TeaWAPOracle {
             if (!success || returndata.length != 32) return (false, fallbackPrice);
             address factory = abi.decode(returndata, (address));
 
-            (success, returndata) = factory.staticcall(abi.encodeWithSignature("paused()"));
+            (success, returndata) = factory.staticcall(abi.encodeWithSignature("isPaused()"));
             if (!success || returndata.length != 32) return (false, fallbackPrice);
             bool paused = abi.decode(returndata, (bool));
             if (paused) return (false, fallbackPrice);
