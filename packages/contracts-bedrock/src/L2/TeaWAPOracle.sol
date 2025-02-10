@@ -24,6 +24,7 @@ contract TeaWAPOracle {
     bytes32 public constant CUSTOM_GAS_TOKEN_PRICE_SLOT = bytes32(uint256(keccak256("tea.customgastoken.price")) - 1);
 
     /// @notice The storage slot that contains the fallback price, set by admin
+    /// @dev This price is stored as a uint160 to align with the `latestPrice` in the previous slot
     bytes32 public constant FALLBACK_PRICE_SLOT = bytes32(uint256(keccak256("tea.customgastoken.fallbackprice")) - 1);
 
     /// @notice A backup TEA/ETH ratio, in the case that the oracle is not set
@@ -52,7 +53,7 @@ contract TeaWAPOracle {
 
     /// @notice Convert the inputted amount of ETH (18 decimals) to $TEA
     /// @dev amount (18 decimals) * teaPerETH (18 decimals) / 1e18 = teaAmount (18 decimals)
-    function convertETHToTea(uint256 amount) public view returns (uint256) {
+    function convertETHToTea(uint256 amount) external view returns (uint256) {
         (, uint160 rate) = teaPerETH();
         return amount * rate / 1e18;
     }
@@ -97,7 +98,7 @@ contract TeaWAPOracle {
             abi.encodeWithSignature("getReserves()")
         );
         if (!success || returndata.length != 96) return (false, fallbackPrice);
-        (uint r0, uint r1,) = abi.decode(returndata, (uint, uint, uint));
+        (uint256 r0, uint256 r1,) = abi.decode(returndata, (uint, uint, uint));
 
         // Use WETH reserves for this reliability, because it's the more stable token price.
         uint256 wethReserves = wethT0 ? r0 : r1;
@@ -147,7 +148,7 @@ contract TeaWAPOracle {
         uint16 _twapObservations,
         uint80 _minWethBalance,
         address _oracle
-    ) external  {
+    ) external {
         require(msg.sender == Ownable(Predeploys.PROXY_ADMIN).owner(), "TeaWAPOracle: admin only");
 
         require(_oracle != address(0), "TeaWAPOracle: zero address");

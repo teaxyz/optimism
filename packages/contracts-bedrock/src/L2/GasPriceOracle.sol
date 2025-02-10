@@ -59,7 +59,7 @@ contract GasPriceOracle is TeaWAPOracle, ISemver {
     /// @notice Computes the L1 portion of the fee based on the size of the rlp encoded input
     ///         transaction, the current L1 base fee, and the various dynamic parameters.
     /// @param _data Unsigned fully RLP-encoded transaction to get the L1 fee for.
-        /// @dev This has been adapted to return the value in TEA rather than ETH.
+    /// @dev This has been adapted to return the value in TEA rather than ETH.
     /// @return L1 fee that should be paid for the tx
     function getL1Fee(bytes memory _data) external view returns (uint256) {
         (, uint160 latestPrice) = getLatestPrice();
@@ -72,7 +72,7 @@ contract GasPriceOracle is TeaWAPOracle, ISemver {
     }
 
     /// @notice Pulls the latest price from the oracle and updates the ratio storage slot.
-    /// @dev This function CAN NOT revert, as it is called by the System TX when updating L1Block.sol.
+    /// @dev This function MUST NOT revert, as it is called by the System TX when updating L1Block.sol.
     function updateGasTokenPriceRatio() external {
         require(msg.sender == Predeploys.L1_BLOCK_ATTRIBUTES, "GasPriceOracle: only L1_BLOCK_ATTRIBUTES can update");
 
