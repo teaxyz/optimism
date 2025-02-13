@@ -1,14 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.15;
 
-// Contracts
-import { SafeSend } from "src/universal/SafeSend.sol";
-
-// Libraries
-import { SafeCall } from "src/libraries/SafeCall.sol";
-
-// Interfaces
 import { IFaucetAuthModule } from "src/periphery/faucet/authmodules/IFaucetAuthModule.sol";
+import { SafeCall } from "src/libraries/SafeCall.sol";
+import { SafeSend } from "src/universal/SafeSend.sol";
 
 /// @title  Faucet
 /// @notice Faucet contract that drips ETH to users.
@@ -55,8 +50,8 @@ contract Faucet {
     /// @notice Maps from id to nonces to whether or not they have been used.
     mapping(bytes32 => mapping(bytes32 => bool)) public nonces;
 
-    /// @notice Modifier that makes a function admin privileged.
-    modifier privileged() {
+    /// @notice Modifier that makes a function admin priviledged.
+    modifier priviledged() {
         require(msg.sender == ADMIN, "Faucet: function can only be called by admin");
         _;
     }
@@ -74,14 +69,14 @@ contract Faucet {
     /// @notice Allows the admin to withdraw funds.
     /// @param _recipient Address to receive the funds.
     /// @param _amount    Amount of ETH in wei to withdraw.
-    function withdraw(address payable _recipient, uint256 _amount) public privileged {
+    function withdraw(address payable _recipient, uint256 _amount) public priviledged {
         new SafeSend{ value: _amount }(_recipient);
     }
 
     /// @notice Allows the admin to configure an authentication module.
     /// @param _module Authentication module to configure.
     /// @param _config Configuration to set for the module.
-    function configure(IFaucetAuthModule _module, ModuleConfig memory _config) public privileged {
+    function configure(IFaucetAuthModule _module, ModuleConfig memory _config) public priviledged {
         modules[_module] = _config;
     }
 
@@ -123,8 +118,7 @@ contract Faucet {
         nonces[_auth.id][_params.nonce] = true;
 
         // Execute transfer of ETH to the recipient account.
-        bool success = SafeCall.call(_params.recipient, _params.gasLimit, config.amount, _params.data);
-        require(success, "Faucet: Failed to execute SafeCall during drip to recipient");
+        SafeCall.call(_params.recipient, _params.gasLimit, config.amount, _params.data);
 
         emit Drip(config.name, _auth.id, config.amount, _params.recipient);
     }

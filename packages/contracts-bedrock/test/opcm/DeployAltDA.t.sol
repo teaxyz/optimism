@@ -4,9 +4,9 @@ pragma solidity 0.8.15;
 import { Test } from "forge-std/Test.sol";
 
 import { DeployAltDAInput, DeployAltDAOutput, DeployAltDA } from "scripts/deploy/DeployAltDA.s.sol";
-import { IDataAvailabilityChallenge } from "interfaces/L1/IDataAvailabilityChallenge.sol";
-import { IProxyAdmin } from "interfaces/universal/IProxyAdmin.sol";
-import { IProxy } from "interfaces/universal/IProxy.sol";
+import { IDataAvailabilityChallenge } from "src/L1/interfaces/IDataAvailabilityChallenge.sol";
+import { IProxyAdmin } from "src/universal/interfaces/IProxyAdmin.sol";
+import { IProxy } from "src/universal/interfaces/IProxy.sol";
 import { DeployUtils } from "scripts/libraries/DeployUtils.sol";
 
 contract DeployAltDAInput_Test is Test {
@@ -44,7 +44,7 @@ contract DeployAltDAInput_Test is Test {
         assertEq(resolverRefundPercentage, dai.resolverRefundPercentage(), "700");
     }
 
-    function test_getters_whenNotSet_reverts() public {
+    function test_getters_whenNotSet_revert() public {
         bytes memory expectedErr = "DeployAltDAInput: ";
 
         vm.expectRevert(abi.encodePacked(expectedErr, "salt not set"));
@@ -119,7 +119,7 @@ contract DeployAltDAOutput_Test is Test {
         assertEq(address(dataAvailabilityChallengeImpl), address(dao.dataAvailabilityChallengeImpl()), "200");
     }
 
-    function test_getters_whenNotSet_reverts() public {
+    function test_getters_whenNotSet_revert() public {
         vm.expectRevert("DeployUtils: zero address");
         dao.dataAvailabilityChallengeProxy();
 
@@ -231,7 +231,7 @@ contract DeployAltDA_Test is Test {
         deployer.checkOutput(dai, dao);
     }
 
-    function testFuzz_run_withDifferentParameters_works(
+    function testFuzz_run_withDifferentParameters(
         uint256 _challengeWindow,
         uint256 _resolveWindow,
         uint256 _bondSize,

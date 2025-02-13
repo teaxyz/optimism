@@ -11,7 +11,7 @@ import { ResourceMetering } from "src/L1/ResourceMetering.sol";
 import { Constants } from "src/libraries/Constants.sol";
 
 // Interfaces
-import { IResourceMetering } from "interfaces/L1/IResourceMetering.sol";
+import { IResourceMetering } from "src/L1/interfaces/IResourceMetering.sol";
 
 contract MeterUser is ResourceMetering {
     ResourceMetering.ResourceConfig public innerConfig;
@@ -201,21 +201,20 @@ contract ResourceMetering_Test is Test {
     function testFuzz_meter_largeBlockDiff_succeeds(uint64 _amount, uint256 _blockDiff) external {
         // This test fails if the following line is commented out.
         // At 12 seconds per block, this number is effectively unreachable.
-        _blockDiff = uint256(bound(_blockDiff, 0, 433576281058164217753225238677900874458690));
+        vm.assume(_blockDiff < 433576281058164217753225238677900874458691);
 
         ResourceMetering.ResourceConfig memory rcfg = meter.resourceConfig();
         uint64 target = uint64(rcfg.maxResourceLimit) / uint64(rcfg.elasticityMultiplier);
         uint64 elasticityMultiplier = uint64(rcfg.elasticityMultiplier);
 
-        _amount = uint64(bound(_amount, 0, target * elasticityMultiplier));
-
+        vm.assume(_amount < target * elasticityMultiplier);
         vm.roll(initialBlockNum + _blockDiff);
         meter.use(_amount);
     }
 
     function testFuzz_meter_useGas_succeeds(uint64 _amount) external {
         (, uint64 prevBoughtGas,) = meter.params();
-        _amount = uint64(bound(_amount, 0, meter.resourceConfig().maxResourceLimit - prevBoughtGas));
+        vm.assume(prevBoughtGas + _amount <= meter.resourceConfig().maxResourceLimit);
 
         meter.use(_amount);
 

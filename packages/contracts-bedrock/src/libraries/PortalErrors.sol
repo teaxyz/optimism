@@ -9,6 +9,8 @@ error LargeCalldata();
 error SmallGasLimit();
 /// @notice Error for when a withdrawal transfer fails.
 error TransferFailed();
+/// @notice Error for when a method is called that only works when using a custom gas token.
+error OnlyCustomGasToken();
 /// @notice Error for when a method cannot be called with non zero CALLVALUE.
 error NoValue();
 /// @notice Error for an unauthorized CALLER.
@@ -36,5 +38,3 @@ error Unproven();
 error ProposalNotValidated();
 /// @notice Error for when a withdrawal has already been finalized.
 error AlreadyFinalized();
-/// @notice Error for when a game is a legacy game.
-error LegacyGame();

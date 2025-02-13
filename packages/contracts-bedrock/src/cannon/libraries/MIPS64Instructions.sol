@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity 0.8.15;
 
-// Libraries
 import { MIPS64Memory } from "src/cannon/libraries/MIPS64Memory.sol";
 import { MIPS64State as st } from "src/cannon/libraries/MIPS64State.sol";
 import { MIPS64Arch as arch } from "src/cannon/libraries/MIPS64Arch.sol";
@@ -252,8 +251,7 @@ library MIPS64Instructions {
 
                 // sll
                 if (_fun == 0x00) {
-                    uint32 shiftAmt = (_insn >> 6) & 0x1F;
-                    return signExtend((_rt << shiftAmt) & U32_MASK, 32);
+                    return signExtend((_rt & U32_MASK) << ((_insn >> 6) & 0x1F), 32);
                 }
                 // srl
                 else if (_fun == 0x02) {
@@ -266,8 +264,7 @@ library MIPS64Instructions {
                 }
                 // sllv
                 else if (_fun == 0x04) {
-                    uint64 shiftAmt = _rs & 0x1F;
-                    return signExtend((_rt << shiftAmt) & U32_MASK, 32);
+                    return signExtend((_rt & U32_MASK) << (_rs & 0x1F), 32);
                 }
                 // srlv
                 else if (_fun == 0x6) {
@@ -594,7 +591,7 @@ library MIPS64Instructions {
     /// @notice Extends the value leftwards with its most significant bit (sign extension).
     function signExtend(uint64 _dat, uint64 _idx) internal pure returns (uint64 out_) {
         unchecked {
-            bool isSigned = (_dat >> (_idx - 1)) & 1 != 0;
+            bool isSigned = (_dat >> (_idx - 1)) != 0;
             uint256 signed = ((1 << (arch.WORD_SIZE - _idx)) - 1) << _idx;
             uint256 mask = (1 << _idx) - 1;
             return uint64(_dat & mask | (isSigned ? signed : 0));
@@ -645,11 +642,6 @@ library MIPS64Instructions {
                 uint32 rtv = ((_insn >> 16) & 0x1F);
                 if (rtv == 0) {
                     shouldBranch = int64(_rs) < 0;
-                }
-                // bltzal
-                if (rtv == 0x10) {
-                    shouldBranch = int64(_rs) < 0;
-                    _registers[REG_RA] = _cpu.pc + 8; // always set regardless of branch taken
                 }
                 if (rtv == 1) {
                     shouldBranch = int64(_rs) >= 0;

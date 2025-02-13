@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity 0.8.15;
 
-// Libraries
 import { MIPSMemory } from "src/cannon/libraries/MIPSMemory.sol";
 import { MIPSState as st } from "src/cannon/libraries/MIPSState.sol";
 
@@ -444,7 +443,7 @@ library MIPSInstructions {
     /// @notice Extends the value leftwards with its most significant bit (sign extension).
     function signExtend(uint32 _dat, uint32 _idx) internal pure returns (uint32 out_) {
         unchecked {
-            bool isSigned = (_dat >> (_idx - 1)) & 1 != 0;
+            bool isSigned = (_dat >> (_idx - 1)) != 0;
             uint256 signed = ((1 << (32 - _idx)) - 1) << _idx;
             uint256 mask = (1 << _idx) - 1;
             return uint32(_dat & mask | (isSigned ? signed : 0));

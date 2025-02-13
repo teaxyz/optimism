@@ -2,6 +2,7 @@
 pragma solidity 0.8.15;
 
 import { StdUtils } from "forge-std/StdUtils.sol";
+import { Test } from "forge-std/Test.sol";
 import { Vm } from "forge-std/Vm.sol";
 
 import { StdInvariant } from "forge-std/StdInvariant.sol";
@@ -32,7 +33,7 @@ contract Burn_EthBurner is StdUtils {
         // execute a burn of _value eth
         Burn.eth(value);
 
-        // check that exactly value eth was transferred from the contract
+        // check that exactly value eth was transfered from the contract
         unchecked {
             if (address(this).balance != preBurnBalance - value) {
                 failedEthBurn = true;

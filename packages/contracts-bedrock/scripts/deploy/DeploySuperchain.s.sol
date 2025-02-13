@@ -4,10 +4,10 @@ pragma solidity 0.8.15;
 import { Script } from "forge-std/Script.sol";
 import { stdToml } from "forge-std/StdToml.sol";
 
-import { ISuperchainConfig } from "interfaces/L1/ISuperchainConfig.sol";
-import { IProtocolVersions, ProtocolVersion } from "interfaces/L1/IProtocolVersions.sol";
-import { IProxyAdmin } from "interfaces/universal/IProxyAdmin.sol";
-import { IProxy } from "interfaces/universal/IProxy.sol";
+import { ISuperchainConfig } from "src/L1/interfaces/ISuperchainConfig.sol";
+import { IProtocolVersions, ProtocolVersion } from "src/L1/interfaces/IProtocolVersions.sol";
+import { IProxyAdmin } from "src/universal/interfaces/IProxyAdmin.sol";
+import { IProxy } from "src/universal/interfaces/IProxy.sol";
 
 import { DeployUtils } from "scripts/libraries/DeployUtils.sol";
 import { Solarray } from "scripts/libraries/Solarray.sol";
@@ -60,9 +60,9 @@ import { BaseDeployIO } from "scripts/deploy/BaseDeployIO.sol";
 // we use variable names that are shorthand for the full contract names, for example:
 //   - `dsi` for DeploySuperchainInput
 //   - `dso` for DeploySuperchainOutput
-//   - `dii` for DeployImplementationsInput
+//   - `dio` for DeployImplementationsInput
 //   - `dio` for DeployImplementationsOutput
-//   - `doi` for DeployOPChainInput
+//   - `doo` for DeployOPChainInput
 //   - `doo` for DeployOPChainOutput
 //   - etc.
 
@@ -239,12 +239,7 @@ contract DeploySuperchainOutput is BaseDeployIO {
     function assertValidSuperchainConfig(DeploySuperchainInput _dsi) internal {
         // Proxy checks.
         ISuperchainConfig superchainConfig = superchainConfigProxy();
-        DeployUtils.assertInitialized({
-            _contractAddress: address(superchainConfig),
-            _isProxy: true,
-            _slot: 0,
-            _offset: 0
-        });
+        DeployUtils.assertInitialized({ _contractAddress: address(superchainConfig), _slot: 0, _offset: 0 });
         require(superchainConfig.guardian() == _dsi.guardian(), "SUPCON-10");
         require(superchainConfig.paused() == _dsi.paused(), "SUPCON-20");
 
@@ -264,7 +259,7 @@ contract DeploySuperchainOutput is BaseDeployIO {
     function assertValidProtocolVersions(DeploySuperchainInput _dsi) internal {
         // Proxy checks.
         IProtocolVersions pv = protocolVersionsProxy();
-        DeployUtils.assertInitialized({ _contractAddress: address(pv), _isProxy: true, _slot: 0, _offset: 0 });
+        DeployUtils.assertInitialized({ _contractAddress: address(pv), _slot: 0, _offset: 0 });
         require(pv.owner() == _dsi.protocolVersionsOwner(), "PV-10");
         require(
             ProtocolVersion.unwrap(pv.required()) == ProtocolVersion.unwrap(_dsi.requiredProtocolVersion()), "PV-20"
@@ -281,7 +276,7 @@ contract DeploySuperchainOutput is BaseDeployIO {
 
         // Implementation checks.
         pv = protocolVersionsImpl();
-        require(pv.owner() == address(0), "PV-60");
+        require(pv.owner() == address(0xdead), "PV-60");
         require(ProtocolVersion.unwrap(pv.required()) == 0, "PV-70");
         require(ProtocolVersion.unwrap(pv.recommended()) == 0, "PV-80");
     }
@@ -292,8 +287,6 @@ contract DeploySuperchainOutput is BaseDeployIO {
 // default sender would be the broadcaster during test, but the broadcaster needs to be the deployer
 // since they are set to the initial proxy admin owner.
 contract DeploySuperchain is Script {
-    bytes32 internal _salt = DeployUtils.DEFAULT_SALT;
-
     // -------- Core Deployment Methods --------
 
     function run(DeploySuperchainInput _dsi, DeploySuperchainOutput _dso) public {
@@ -342,20 +335,20 @@ contract DeploySuperchain is Script {
 
     function deploySuperchainImplementationContracts(DeploySuperchainInput, DeploySuperchainOutput _dso) public {
         // Deploy implementation contracts.
+        vm.startBroadcast(msg.sender);
         ISuperchainConfig superchainConfigImpl = ISuperchainConfig(
-            DeployUtils.createDeterministic({
+            DeployUtils.create1({
                 _name: "SuperchainConfig",
-                _args: DeployUtils.encodeConstructor(abi.encodeCall(ISuperchainConfig.__constructor__, ())),
-                _salt: _salt
+                _args: DeployUtils.encodeConstructor(abi.encodeCall(ISuperchainConfig.__constructor__, ()))
             })
         );
         IProtocolVersions protocolVersionsImpl = IProtocolVersions(
-            DeployUtils.createDeterministic({
+            DeployUtils.create1({
                 _name: "ProtocolVersions",
-                _args: DeployUtils.encodeConstructor(abi.encodeCall(IProtocolVersions.__constructor__, ())),
-                _salt: _salt
+                _args: DeployUtils.encodeConstructor(abi.encodeCall(IProtocolVersions.__constructor__, ()))
             })
         );
+        vm.stopBroadcast();
 
         vm.label(address(superchainConfigImpl), "SuperchainConfigImpl");
         vm.label(address(protocolVersionsImpl), "ProtocolVersionsImpl");
@@ -438,16 +431,10 @@ contract DeploySuperchain is Script {
     // When interacting with the script programmatically (e.g. in a Solidity test), this must be called.
     function etchIOContracts() public returns (DeploySuperchainInput dsi_, DeploySuperchainOutput dso_) {
         (dsi_, dso_) = getIOContracts();
-        DeployUtils.etchLabelAndAllowCheatcodes({
-            _etchTo: address(dsi_),
-            _cname: "DeploySuperchainInput",
-            _artifactPath: "DeploySuperchain.s.sol:DeploySuperchainInput"
-        });
-        DeployUtils.etchLabelAndAllowCheatcodes({
-            _etchTo: address(dso_),
-            _cname: "DeploySuperchainOutput",
-            _artifactPath: "DeploySuperchain.s.sol:DeploySuperchainOutput"
-        });
+        vm.etch(address(dsi_), type(DeploySuperchainInput).runtimeCode);
+        vm.etch(address(dso_), type(DeploySuperchainOutput).runtimeCode);
+        vm.allowCheatcodes(address(dsi_));
+        vm.allowCheatcodes(address(dso_));
     }
 
     // This returns the addresses of the IO contracts for this script.

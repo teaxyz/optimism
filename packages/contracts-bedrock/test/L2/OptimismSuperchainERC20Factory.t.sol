@@ -2,18 +2,18 @@
 pragma solidity 0.8.15;
 
 // Testing utilities
-import { CommonTest } from "test/setup/CommonTest.sol";
+import { Bridge_Initializer } from "test/setup/Bridge_Initializer.sol";
 
 // Libraries
 import { CREATE3, Bytes32AddressLib } from "@rari-capital/solmate/src/utils/CREATE3.sol";
 
 // Target contract
-import { IOptimismSuperchainERC20 } from "interfaces/L2/IOptimismSuperchainERC20.sol";
+import { IOptimismSuperchainERC20 } from "src/L2/interfaces/IOptimismSuperchainERC20.sol";
 import { IERC20Metadata } from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
 
 /// @title OptimismSuperchainERC20FactoryTest
 /// @notice Contract for testing the OptimismSuperchainERC20Factory contract.
-contract OptimismSuperchainERC20FactoryTest is CommonTest {
+contract OptimismSuperchainERC20FactoryTest is Bridge_Initializer {
     using Bytes32AddressLib for bytes32;
 
     event OptimismSuperchainERC20Created(
@@ -22,9 +22,6 @@ contract OptimismSuperchainERC20FactoryTest is CommonTest {
 
     /// @notice Sets up the test suite.
     function setUp() public override {
-        // Skip the test until OptimismSuperchainERC20Factory is integrated again
-        vm.skip(true);
-
         super.enableInterop();
         super.setUp();
     }
