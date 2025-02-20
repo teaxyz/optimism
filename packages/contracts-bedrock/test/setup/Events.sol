@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import { IDisputeGame } from "interfaces/dispute/IDisputeGame.sol";
+import { IDisputeGame } from "src/dispute/interfaces/IDisputeGame.sol";
 import "src/dispute/lib/Types.sol";
 
 import { Types } from "src/libraries/Types.sol";
@@ -104,6 +104,4 @@ contract Events {
     event Paused(string identifier);
 
     event Unpaused();
-
-    event BalanceChanged(address account, uint256 balance);
 }

@@ -13,19 +13,19 @@ import {
 import { DeployOPChainInput, DeployOPChain, DeployOPChainOutput } from "scripts/deploy/DeployOPChain.s.sol";
 import { DeployUtils } from "scripts/libraries/DeployUtils.sol";
 
-import { IProxyAdmin } from "interfaces/universal/IProxyAdmin.sol";
+import { IProxyAdmin } from "src/universal/interfaces/IProxyAdmin.sol";
 
-import { IAddressManager } from "interfaces/legacy/IAddressManager.sol";
-import { IAnchorStateRegistry } from "interfaces/dispute/IAnchorStateRegistry.sol";
-import { IFaultDisputeGame } from "interfaces/dispute/IFaultDisputeGame.sol";
-import { IPermissionedDisputeGame } from "interfaces/dispute/IPermissionedDisputeGame.sol";
-import { IL1ChugSplashProxy } from "interfaces/legacy/IL1ChugSplashProxy.sol";
-import { IResolvedDelegateProxy } from "interfaces/legacy/IResolvedDelegateProxy.sol";
+import { IAddressManager } from "src/legacy/interfaces/IAddressManager.sol";
+import { IAnchorStateRegistry } from "src/dispute/interfaces/IAnchorStateRegistry.sol";
+import { IFaultDisputeGame } from "src/dispute/interfaces/IFaultDisputeGame.sol";
+import { IPermissionedDisputeGame } from "src/dispute/interfaces/IPermissionedDisputeGame.sol";
+import { IL1ChugSplashProxy } from "src/legacy/interfaces/IL1ChugSplashProxy.sol";
+import { IResolvedDelegateProxy } from "src/legacy/interfaces/IResolvedDelegateProxy.sol";
 
-import { ISuperchainConfig } from "interfaces/L1/ISuperchainConfig.sol";
-import { IProtocolVersions, ProtocolVersion } from "interfaces/L1/IProtocolVersions.sol";
-import { IOPContractsManager } from "interfaces/L1/IOPContractsManager.sol";
-import { IProxy } from "interfaces/universal/IProxy.sol";
+import { ISuperchainConfig } from "src/L1/interfaces/ISuperchainConfig.sol";
+import { IProtocolVersions, ProtocolVersion } from "src/L1/interfaces/IProtocolVersions.sol";
+import { OPContractsManager } from "src/L1/OPContractsManager.sol";
+import { IProxy } from "src/universal/interfaces/IProxy.sol";
 
 import { Claim, Duration, GameType, GameTypes, Hash, OutputRoot } from "src/dispute/lib/Types.sol";
 
@@ -39,10 +39,10 @@ contract DeployOPChainInput_Test is Test {
     address unsafeBlockSigner = makeAddr("unsafeBlockSigner");
     address proposer = makeAddr("proposer");
     address challenger = makeAddr("challenger");
-    address opcm = makeAddr("opcm");
     uint32 basefeeScalar = 100;
     uint32 blobBaseFeeScalar = 200;
     uint256 l2ChainId = 300;
+    OPContractsManager opcm = OPContractsManager(makeAddr("opcm"));
     string saltMixer = "saltMixer";
 
     function setUp() public {
@@ -60,8 +60,9 @@ contract DeployOPChainInput_Test is Test {
         doi.set(doi.blobBaseFeeScalar.selector, blobBaseFeeScalar);
         doi.set(doi.l2ChainId.selector, l2ChainId);
         doi.set(doi.allowCustomDisputeParameters.selector, true);
-        doi.set(doi.opcm.selector, opcm);
-        vm.etch(opcm, hex"01");
+
+        (IProxy opcmProxy) = DeployUtils.buildERC1967ProxyWithImpl("opcmProxy");
+        doi.set(doi.opcmProxy.selector, address(opcmProxy));
 
         // Compare the default inputs to the getter methods.
         assertEq(opChainProxyAdminOwner, doi.opChainProxyAdminOwner(), "200");
@@ -73,11 +74,11 @@ contract DeployOPChainInput_Test is Test {
         assertEq(basefeeScalar, doi.basefeeScalar(), "800");
         assertEq(blobBaseFeeScalar, doi.blobBaseFeeScalar(), "900");
         assertEq(l2ChainId, doi.l2ChainId(), "1000");
-        assertEq(opcm, address(doi.opcm()), "1100");
+        assertEq(address(opcmProxy), address(doi.opcmProxy()), "1100");
         assertEq(true, doi.allowCustomDisputeParameters(), "1200");
     }
 
-    function test_getters_whenNotSet_reverts() public {
+    function test_getters_whenNotSet_revert() public {
         bytes memory expectedErr = "DeployOPChainInput: not set";
 
         vm.expectRevert(expectedErr);
@@ -133,7 +134,7 @@ contract DeployOPChainOutput_Test is Test {
         (IL1ChugSplashProxy l1StandardBridgeProxy) = DeployUtils.buildL1ChugSplashProxyWithImpl("l1StandardBridgeProxy");
         (IResolvedDelegateProxy l1CrossDomainMessengerProxy) =
             DeployUtils.buildResolvedDelegateProxyWithImpl(addressManager, "OVM_L1CrossDomainMessenger");
-        (IProxy optimismPortalProxy) = DeployUtils.buildERC1967ProxyWithImpl("OptimismPortalProxy");
+        (IProxy optimismPortalProxy) = DeployUtils.buildERC1967ProxyWithImpl("optimismPortalProxy");
         (IProxy disputeGameFactoryProxy) = DeployUtils.buildERC1967ProxyWithImpl("disputeGameFactoryProxy");
         (IProxy anchorStateRegistryProxy) = DeployUtils.buildERC1967ProxyWithImpl("anchorStateRegistryProxy");
         vm.etch(address(anchorStateRegistryImpl), hex"01");
@@ -155,6 +156,7 @@ contract DeployOPChainOutput_Test is Test {
         doo.set(doo.optimismPortalProxy.selector, address(optimismPortalProxy));
         doo.set(doo.disputeGameFactoryProxy.selector, address(disputeGameFactoryProxy));
         doo.set(doo.anchorStateRegistryProxy.selector, address(anchorStateRegistryProxy));
+        doo.set(doo.anchorStateRegistryImpl.selector, address(anchorStateRegistryImpl));
         doo.set(doo.faultDisputeGame.selector, address(faultDisputeGame));
         doo.set(doo.permissionedDisputeGame.selector, address(permissionedDisputeGame));
         doo.set(doo.delayedWETHPermissionedGameProxy.selector, address(delayedWETHPermissionedGameProxy));
@@ -171,6 +173,7 @@ contract DeployOPChainOutput_Test is Test {
         assertEq(address(optimismPortalProxy), address(doo.optimismPortalProxy()), "800");
         assertEq(address(disputeGameFactoryProxy), address(doo.disputeGameFactoryProxy()), "900");
         assertEq(address(anchorStateRegistryProxy), address(doo.anchorStateRegistryProxy()), "1100");
+        assertEq(address(anchorStateRegistryImpl), address(doo.anchorStateRegistryImpl()), "1200");
         assertEq(address(faultDisputeGame), address(doo.faultDisputeGame()), "1300");
         assertEq(address(permissionedDisputeGame), address(doo.permissionedDisputeGame()), "1400");
         assertEq(address(delayedWETHPermissionedGameProxy), address(doo.delayedWETHPermissionedGameProxy()), "1500");
@@ -179,7 +182,7 @@ contract DeployOPChainOutput_Test is Test {
         // "1600");
     }
 
-    function test_getters_whenNotSet_reverts() public {
+    function test_getters_whenNotSet_revert() public {
         bytes memory expectedErr = "DeployUtils: zero address";
 
         vm.expectRevert(expectedErr);
@@ -211,6 +214,9 @@ contract DeployOPChainOutput_Test is Test {
 
         vm.expectRevert(expectedErr);
         doo.anchorStateRegistryProxy();
+
+        vm.expectRevert(expectedErr);
+        doo.anchorStateRegistryImpl();
 
         vm.expectRevert(expectedErr);
         doo.faultDisputeGame();
@@ -270,6 +276,10 @@ contract DeployOPChainOutput_Test is Test {
         vm.expectRevert(expectedErr);
         doo.anchorStateRegistryProxy();
 
+        doo.set(doo.anchorStateRegistryImpl.selector, emptyAddr);
+        vm.expectRevert(expectedErr);
+        doo.anchorStateRegistryImpl();
+
         doo.set(doo.faultDisputeGame.selector, emptyAddr);
         vm.expectRevert(expectedErr);
         doo.faultDisputeGame();
@@ -315,8 +325,7 @@ contract DeployOPChain_TestBase is Test {
     string release = "dev-release"; // this means implementation contracts will be deployed
     ISuperchainConfig superchainConfigProxy;
     IProtocolVersions protocolVersionsProxy;
-    IProxyAdmin superchainProxyAdmin;
-    address upgradeController;
+
     // Define default inputs for DeployOPChain.
     // `opcm` is set during `setUp` since it is an output of the previous step.
     address opChainProxyAdminOwner = makeAddr("defaultOPChainProxyAdminOwner");
@@ -328,8 +337,8 @@ contract DeployOPChain_TestBase is Test {
     uint32 basefeeScalar = 100;
     uint32 blobBaseFeeScalar = 200;
     uint256 l2ChainId = 300;
-    OutputRoot startingAnchorRoot = OutputRoot({ root: Hash.wrap(keccak256("defaultOutputRoot")), l2BlockNumber: 400 });
-    IOPContractsManager opcm = IOPContractsManager(address(0));
+    IAnchorStateRegistry.StartingAnchorRoot[] startingAnchorRoots;
+    OPContractsManager opcm = OPContractsManager(address(0));
     string saltMixer = "defaultSaltMixer";
     uint64 gasLimit = 60_000_000;
     // Configurable dispute game parameters.
@@ -341,6 +350,25 @@ contract DeployOPChain_TestBase is Test {
     uint64 disputeMaxClockDuration = Duration.unwrap(Duration.wrap(3.5 days));
 
     function setUp() public virtual {
+        // Set defaults for reference types
+        uint256 cannonBlock = 400;
+        uint256 permissionedBlock = 500;
+        startingAnchorRoots.push(
+            IAnchorStateRegistry.StartingAnchorRoot({
+                gameType: GameTypes.CANNON,
+                outputRoot: OutputRoot({ root: Hash.wrap(keccak256("defaultOutputRootCannon")), l2BlockNumber: cannonBlock })
+            })
+        );
+        startingAnchorRoots.push(
+            IAnchorStateRegistry.StartingAnchorRoot({
+                gameType: GameTypes.PERMISSIONED_CANNON,
+                outputRoot: OutputRoot({
+                    root: Hash.wrap(keccak256("defaultOutputRootPermissioned")),
+                    l2BlockNumber: permissionedBlock
+                })
+            })
+        );
+
         // Configure and deploy Superchain contracts
         DeploySuperchain deploySuperchain = new DeploySuperchain();
         (DeploySuperchainInput dsi, DeploySuperchainOutput dso) = deploySuperchain.etchIOContracts();
@@ -357,8 +385,6 @@ contract DeployOPChain_TestBase is Test {
         // Populate the inputs for DeployImplementations based on the output of DeploySuperchain.
         superchainConfigProxy = dso.superchainConfigProxy();
         protocolVersionsProxy = dso.protocolVersionsProxy();
-        superchainProxyAdmin = dso.superchainProxyAdmin();
-        upgradeController = superchainProxyAdmin.owner();
 
         // Configure and deploy Implementation contracts
         DeployImplementations deployImplementations = createDeployImplementationsContract();
@@ -370,12 +396,15 @@ contract DeployOPChain_TestBase is Test {
         dii.set(dii.proofMaturityDelaySeconds.selector, proofMaturityDelaySeconds);
         dii.set(dii.disputeGameFinalityDelaySeconds.selector, disputeGameFinalityDelaySeconds);
         dii.set(dii.mipsVersion.selector, 1);
-        dii.set(dii.l1ContractsRelease.selector, release);
+        dii.set(dii.release.selector, release);
         dii.set(dii.superchainConfigProxy.selector, address(superchainConfigProxy));
         dii.set(dii.protocolVersionsProxy.selector, address(protocolVersionsProxy));
-        dii.set(dii.superchainProxyAdmin.selector, address(superchainProxyAdmin));
-        dii.set(dii.upgradeController.selector, upgradeController);
-
+        // End users of the DeployImplementations contract will need to set the `standardVersionsToml`.
+        string memory standardVersionsTomlPath =
+            string.concat(vm.projectRoot(), "/test/fixtures/standard-versions.toml");
+        string memory standardVersionsToml = vm.readFile(standardVersionsTomlPath);
+        dii.set(dii.standardVersionsToml.selector, standardVersionsToml);
+        dii.set(dii.opcmProxyOwner.selector, address(1));
         deployImplementations.run(dii, dio);
 
         // Deploy DeployOpChain, but defer populating the input values to the test suites inheriting this contract.
@@ -383,7 +412,7 @@ contract DeployOPChain_TestBase is Test {
         (doi, doo) = deployOPChain.etchIOContracts();
 
         // Set the OPContractsManager input for DeployOPChain.
-        opcm = dio.opcm();
+        opcm = dio.opcmProxy();
     }
 
     // See the function of the same name in the `DeployImplementations_Test` contract of
@@ -398,7 +427,7 @@ contract DeployOPChain_Test is DeployOPChain_TestBase {
         return keccak256(abi.encode(_seed, _i));
     }
 
-    function testFuzz_run_memory_succeeds(bytes32 _seed) public {
+    function testFuzz_run_memory_succeed(bytes32 _seed) public {
         opChainProxyAdminOwner = address(uint160(uint256(hash(_seed, 0))));
         systemConfigOwner = address(uint160(uint256(hash(_seed, 1))));
         batcher = address(uint160(uint256(hash(_seed, 2))));
@@ -409,6 +438,25 @@ contract DeployOPChain_Test is DeployOPChain_TestBase {
         blobBaseFeeScalar = uint32(uint256(hash(_seed, 7)));
         l2ChainId = uint256(hash(_seed, 8));
 
+        // Set the initial anchor states. The typical usage we expect is to pass in one root per game type.
+        uint256 cannonBlock = uint256(hash(_seed, 9));
+        uint256 permissionedBlock = uint256(hash(_seed, 10));
+        startingAnchorRoots.push(
+            IAnchorStateRegistry.StartingAnchorRoot({
+                gameType: GameTypes.CANNON,
+                outputRoot: OutputRoot({ root: Hash.wrap(keccak256(abi.encode(_seed, 11))), l2BlockNumber: cannonBlock })
+            })
+        );
+        startingAnchorRoots.push(
+            IAnchorStateRegistry.StartingAnchorRoot({
+                gameType: GameTypes.PERMISSIONED_CANNON,
+                outputRoot: OutputRoot({
+                    root: Hash.wrap(keccak256(abi.encode(_seed, 12))),
+                    l2BlockNumber: permissionedBlock
+                })
+            })
+        );
+
         doi.set(doi.opChainProxyAdminOwner.selector, opChainProxyAdminOwner);
         doi.set(doi.systemConfigOwner.selector, systemConfigOwner);
         doi.set(doi.batcher.selector, batcher);
@@ -418,7 +466,7 @@ contract DeployOPChain_Test is DeployOPChain_TestBase {
         doi.set(doi.basefeeScalar.selector, basefeeScalar);
         doi.set(doi.blobBaseFeeScalar.selector, blobBaseFeeScalar);
         doi.set(doi.l2ChainId.selector, l2ChainId);
-        doi.set(doi.opcm.selector, address(opcm));
+        doi.set(doi.opcmProxy.selector, address(opcm)); // Not fuzzed since it must be an actual instance.
         doi.set(doi.saltMixer.selector, saltMixer);
         doi.set(doi.gasLimit.selector, gasLimit);
         doi.set(doi.disputeGameType.selector, disputeGameType);
@@ -493,7 +541,7 @@ contract DeployOPChain_Test is DeployOPChain_TestBase {
         deployOPChain.run(doi, doo);
     }
 
-    function test_customDisputeGame_customEnabled_succeeds() public {
+    function test_customDisputeGame_customEnabled_doesNotRevert() public {
         setDOI();
         doi.set(doi.allowCustomDisputeParameters.selector, true);
         doi.set(doi.disputeSplitDepth.selector, disputeSplitDepth + 1);
@@ -511,7 +559,7 @@ contract DeployOPChain_Test is DeployOPChain_TestBase {
         doi.set(doi.basefeeScalar.selector, basefeeScalar);
         doi.set(doi.blobBaseFeeScalar.selector, blobBaseFeeScalar);
         doi.set(doi.l2ChainId.selector, l2ChainId);
-        doi.set(doi.opcm.selector, address(opcm));
+        doi.set(doi.opcmProxy.selector, address(opcm));
         doi.set(doi.saltMixer.selector, saltMixer);
         doi.set(doi.gasLimit.selector, gasLimit);
         doi.set(doi.disputeGameType.selector, disputeGameType);

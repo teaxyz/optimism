@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-// Libraries
-import { Bytes } from "src/libraries/Bytes.sol";
-import { RLPReader } from "src/libraries/rlp/RLPReader.sol";
+import { Bytes } from "../Bytes.sol";
+import { RLPReader } from "../rlp/RLPReader.sol";
 
 /// @title MerkleTrie
 /// @notice MerkleTrie is a small library for verifying standard Ethereum Merkle-Patricia trie

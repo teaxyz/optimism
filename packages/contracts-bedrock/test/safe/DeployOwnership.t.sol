@@ -6,6 +6,7 @@ import {
     SafeConfig,
     SecurityCouncilConfig,
     GuardianConfig,
+    DeputyGuardianModuleConfig,
     LivenessModuleConfig
 } from "scripts/deploy/DeployOwnership.s.sol";
 import { Test } from "forge-std/Test.sol";
@@ -41,9 +42,9 @@ contract DeployOwnershipTest is Test, DeployOwnership {
 
     /// @dev Test the example Foundation Safe configurations, against the expected configuration, and
     ///     check that they both have the same configuration.
-    function test_exampleFoundationSafes_configuration_succeeds() public {
-        Safe upgradeSafe = Safe(payable(artifacts.mustGetAddress("FoundationUpgradeSafe")));
-        Safe operationsSafe = Safe(payable(artifacts.mustGetAddress("FoundationOperationsSafe")));
+    function test_exampleFoundationSafes() public {
+        Safe upgradeSafe = Safe(payable(mustGetAddress("FoundationUpgradeSafe")));
+        Safe operationsSafe = Safe(payable(mustGetAddress("FoundationOperationsSafe")));
         SafeConfig memory exampleFoundationConfig = _getExampleFoundationConfig();
 
         // Ensure the safes both match the example configuration
@@ -56,14 +57,14 @@ contract DeployOwnershipTest is Test, DeployOwnership {
     }
 
     /// @dev Test the example Security Council Safe configuration.
-    function test_exampleSecurityCouncilSafe_configuration_succeeds() public {
-        Safe securityCouncilSafe = Safe(payable(artifacts.mustGetAddress("SecurityCouncilSafe")));
+    function test_exampleSecurityCouncilSafe() public {
+        Safe securityCouncilSafe = Safe(payable(mustGetAddress("SecurityCouncilSafe")));
         SecurityCouncilConfig memory exampleSecurityCouncilConfig = _getExampleCouncilConfig();
 
         _checkSafeConfig(exampleSecurityCouncilConfig.safeConfig, securityCouncilSafe);
 
         // Guard Checks
-        address livenessGuard = artifacts.mustGetAddress("LivenessGuard");
+        address livenessGuard = mustGetAddress("LivenessGuard");
 
         // The Safe's getGuard method is internal, so we read directly from storage
         // https://github.com/safe-global/safe-contracts/blob/v1.4.0/contracts/base/GuardManager.sol#L66-L72
@@ -76,7 +77,7 @@ contract DeployOwnershipTest is Test, DeployOwnership {
         }
 
         // Module Checks
-        address livenessModule = artifacts.mustGetAddress("LivenessModule");
+        address livenessModule = mustGetAddress("LivenessModule");
         (address[] memory modules, address nextModule) =
             ModuleManager(securityCouncilSafe).getModulesPaginated(SENTINEL_MODULES, 2);
         assertEq(modules.length, 1);
@@ -95,15 +96,15 @@ contract DeployOwnershipTest is Test, DeployOwnership {
     }
 
     /// @dev Test the example Guardian Safe configuration.
-    function test_exampleGuardianSafe_configuration_succeeds() public view {
-        Safe guardianSafe = Safe(payable(artifacts.mustGetAddress("GuardianSafe")));
+    function test_exampleGuardianSafe() public view {
+        Safe guardianSafe = Safe(payable(mustGetAddress("GuardianSafe")));
         address[] memory owners = new address[](1);
-        owners[0] = artifacts.mustGetAddress("SecurityCouncilSafe");
+        owners[0] = mustGetAddress("SecurityCouncilSafe");
         GuardianConfig memory guardianConfig = _getExampleGuardianConfig();
         _checkSafeConfig(guardianConfig.safeConfig, guardianSafe);
 
         // DeputyGuardianModule checks
-        address deputyGuardianModule = artifacts.mustGetAddress("DeputyGuardianModule");
+        address deputyGuardianModule = mustGetAddress("DeputyGuardianModule");
         (address[] memory modules, address nextModule) =
             ModuleManager(guardianSafe).getModulesPaginated(SENTINEL_MODULES, 2);
         assertEq(modules.length, 1);

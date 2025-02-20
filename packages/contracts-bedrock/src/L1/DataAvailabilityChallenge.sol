@@ -8,7 +8,7 @@ import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/O
 import { SafeCall } from "src/libraries/SafeCall.sol";
 
 // Interfaces
-import { ISemver } from "interfaces/universal/ISemver.sol";
+import { ISemver } from "src/universal/interfaces/ISemver.sol";
 
 /// @dev An enum representing the status of a DA challenge.
 enum ChallengeStatus {
@@ -24,10 +24,9 @@ enum CommitmentType {
 }
 
 /// @dev A struct representing a single DA challenge.
+/// @custom:field status The status of the challenge.
 /// @custom:field challenger The address that initiated the challenge.
-/// @custom:field lockedBond The amount of ETH bond that was locked by the challenger.
 /// @custom:field startBlock The block number at which the challenge was initiated.
-/// @custom:field resolvedBlock The block number at which the challenge was resolved.
 struct Challenge {
     address challenger;
     uint256 lockedBond;
@@ -95,8 +94,8 @@ contract DataAvailabilityChallenge is OwnableUpgradeable, ISemver {
     event BalanceChanged(address account, uint256 balance);
 
     /// @notice Semantic version.
-    /// @custom:semver 1.0.1
-    string public constant version = "1.0.1";
+    /// @custom:semver 1.0.1-beta.2
+    string public constant version = "1.0.1-beta.2";
 
     /// @notice The fixed cost of resolving a challenge.
     /// @dev The value is estimated by measuring the cost of resolving with `bytes(0)`
@@ -129,9 +128,17 @@ contract DataAvailabilityChallenge is OwnableUpgradeable, ISemver {
     /// @notice A mapping from challenged block numbers to challenged commitments to challenges.
     mapping(uint256 => mapping(bytes => Challenge)) internal challenges;
 
-    /// @notice Constructs the DataAvailabilityChallenge contract.
+    /// @notice Constructs the DataAvailabilityChallenge contract. Cannot set
+    ///         the owner to `address(0)` due to the Ownable contract's
+    ///         implementation, so set it to `address(0xdEaD)`.
     constructor() OwnableUpgradeable() {
-        _disableInitializers();
+        initialize({
+            _owner: address(0xdEaD),
+            _challengeWindow: 0,
+            _resolveWindow: 0,
+            _bondSize: 0,
+            _resolverRefundPercentage: 0
+        });
     }
 
     /// @notice Initializes the contract.
@@ -146,7 +153,7 @@ contract DataAvailabilityChallenge is OwnableUpgradeable, ISemver {
         uint256 _bondSize,
         uint256 _resolverRefundPercentage
     )
-        external
+        public
         initializer
     {
         __Ownable_init();

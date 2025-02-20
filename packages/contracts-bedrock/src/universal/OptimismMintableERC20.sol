@@ -1,18 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.15;
 
-// Contracts
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { ERC20Permit } from "@openzeppelin/contracts/token/ERC20/extensions/draft-ERC20Permit.sol";
-
-// Libraries
-import { Preinstalls } from "src/libraries/Preinstalls.sol";
-
-// Interfaces
 import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import { ISemver } from "interfaces/universal/ISemver.sol";
-import { IOptimismMintableERC20 } from "interfaces/universal/IOptimismMintableERC20.sol";
-import { ILegacyMintableERC20 } from "interfaces/legacy/ILegacyMintableERC20.sol";
+import { IOptimismMintableERC20 } from "src/universal/interfaces/IOptimismMintableERC20.sol";
+import { ILegacyMintableERC20 } from "src/universal/interfaces/ILegacyMintableERC20.sol";
+import { ISemver } from "src/universal/interfaces/ISemver.sol";
+import { Preinstalls } from "src/libraries/Preinstalls.sol";
 
 /// @title OptimismMintableERC20
 /// @notice OptimismMintableERC20 is a standard extension of the base ERC20 token contract designed
@@ -47,8 +42,8 @@ contract OptimismMintableERC20 is ERC20Permit, ISemver {
     }
 
     /// @notice Semantic version.
-    /// @custom:semver 1.4.0-beta.5
-    string public constant version = "1.4.0-beta.5";
+    /// @custom:semver 1.4.0-beta.2
+    string public constant version = "1.4.0-beta.2";
 
     /// @notice Getter function for the permit2 address. It deterministically deployed
     ///         so it will always be at the same address. It is also included as a preinstall,

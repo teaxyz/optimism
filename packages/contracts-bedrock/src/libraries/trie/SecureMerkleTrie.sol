@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-// Libraries
-import { MerkleTrie } from "src/libraries/trie/MerkleTrie.sol";
+import { MerkleTrie } from "./MerkleTrie.sol";
 
 /// @title SecureMerkleTrie
 /// @notice SecureMerkleTrie is a thin wrapper around the MerkleTrie library that hashes the input

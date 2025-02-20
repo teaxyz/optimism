@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.15;
 
-// Interfaces
-import { IDripCheck } from "src/periphery/drippie/IDripCheck.sol";
+import { IDripCheck } from "../IDripCheck.sol";
 
 /// @title CheckBalanceLow
 /// @notice DripCheck for checking if an account's balance is below a given threshold.

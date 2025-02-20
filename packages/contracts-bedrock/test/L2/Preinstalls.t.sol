@@ -4,12 +4,12 @@ pragma solidity 0.8.15;
 import { CommonTest } from "test/setup/CommonTest.sol";
 import { Preinstalls } from "src/libraries/Preinstalls.sol";
 import { Bytes } from "src/libraries/Bytes.sol";
-import { IEIP712 } from "interfaces/universal/IEIP712.sol";
+import { IEIP712 } from "src/universal/interfaces/IEIP712.sol";
 
 /// @title PreinstallsTest
 contract PreinstallsTest is CommonTest {
     /// @dev The domain separator commits to the chainid of the chain
-    function test_preinstall_permit2DomainSeparator_works() external view {
+    function test_preinstall_permit2_domain_separator() external view {
         bytes32 domainSeparator = IEIP712(Preinstalls.Permit2).DOMAIN_SEPARATOR();
         bytes32 typeHash =
             keccak256(abi.encodePacked("EIP712Domain(string name,uint256 chainId,address verifyingContract)"));
@@ -23,7 +23,7 @@ contract PreinstallsTest is CommonTest {
         // Warning the Permit2 domain separator as cached in the DeployPermit2.sol bytecode is incorrect.
     }
 
-    function test_permit2_templating_works() external pure {
+    function test_permit2_templating() external pure {
         bytes memory customCode = Preinstalls.getPermit2Code(1234);
         assertNotEq(customCode.length, 0, "must have code");
         assertEq(uint256(bytes32(Bytes.slice(customCode, 6945, 32))), uint256(1234), "expecting custom chain ID");
@@ -115,23 +115,7 @@ contract PreinstallsTest is CommonTest {
         assertEq(vm.getNonce(Preinstalls.BeaconBlockRootsSender), 1, "4788 sender must have nonce=1");
     }
 
-    function test_preinstall_historyStorage_succeeds() external view {
-        assertPreinstall(Preinstalls.HistoryStorage, Preinstalls.HistoryStorageCode);
-        assertEq(vm.getNonce(Preinstalls.HistoryStorageSender), 1, "2935 sender must have nonce=1");
-    }
-
     function test_preinstall_createX_succeeds() external view {
         assertPreinstall(Preinstalls.CreateX, Preinstalls.CreateXCode);
-    }
-
-    function test_createX_runtimeBytecodeHash_works() external view {
-        bytes memory createXRuntimeBytecode = Preinstalls.CreateX.code;
-        bytes32 createXRuntimeBytecodeHash = keccak256(createXRuntimeBytecode);
-
-        assertEq(
-            createXRuntimeBytecodeHash,
-            0xbd8a7ea8cfca7b4e5f5041d7d4b17bc317c5ce42cfbc42066a00cf26b43eb53f,
-            "CreateX runtime bytecode hash mismatch"
-        );
     }
 }

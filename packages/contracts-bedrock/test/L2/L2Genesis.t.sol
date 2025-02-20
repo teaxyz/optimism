@@ -22,21 +22,32 @@ contract L2GenesisTest is Test {
 
     /// @notice Creates a temp file and returns the path to it.
     function tmpfile() internal returns (string memory) {
-        return Process.bash("mktemp");
+        string[] memory commands = new string[](3);
+        commands[0] = "bash";
+        commands[1] = "-c";
+        commands[2] = "mktemp";
+        bytes memory result = Process.run(commands);
+        return string(result);
     }
 
     /// @notice Deletes a file at a given filesystem path. Does not force delete
     ///         and does not recursively delete.
     function deleteFile(string memory path) internal {
-        Process.bash(string.concat("rm ", path), true);
+        string[] memory commands = new string[](3);
+        commands[0] = "bash";
+        commands[1] = "-c";
+        commands[2] = string.concat("rm ", path);
+        Process.run({ _command: commands, _allowEmpty: true });
     }
 
     /// @notice Returns the number of top level keys in a JSON object at a given
     ///         file path.
     function getJSONKeyCount(string memory path) internal returns (uint256) {
-        bytes memory result =
-            bytes(Process.bash(string.concat("jq 'keys | length' < ", path, " | xargs cast abi-encode 'f(uint256)'")));
-        return abi.decode(result, (uint256));
+        string[] memory commands = new string[](3);
+        commands[0] = "bash";
+        commands[1] = "-c";
+        commands[2] = string.concat("jq 'keys | length' < ", path, " | xargs cast abi-encode 'f(uint256)'");
+        return abi.decode(Process.run(commands), (uint256));
     }
 
     /// @notice Helper function to run a function with a temporary dump file.
@@ -48,44 +59,43 @@ contract L2GenesisTest is Test {
 
     /// @notice Helper function for reading the number of storage keys for a given account.
     function getStorageKeysCount(string memory _path, address _addr) internal returns (uint256) {
-        return vm.parseUint(
-            Process.bash(
-                string.concat("jq -r '.[\"", vm.toLowercase(vm.toString(_addr)), "\"].storage | length' < ", _path)
-            )
-        );
+        string[] memory commands = new string[](3);
+        commands[0] = "bash";
+        commands[1] = "-c";
+        commands[2] =
+            string.concat("jq -r '.[\"", vm.toLowercase(vm.toString(_addr)), "\"].storage | length' < ", _path);
+        return vm.parseUint(string(Process.run(commands)));
     }
 
     /// @notice Returns the number of accounts that contain particular code at a given path to a genesis file.
     function getCodeCount(string memory path, string memory name) internal returns (uint256) {
         bytes memory code = vm.getDeployedCode(name);
-        bytes memory result = bytes(
-            Process.bash(
-                string.concat(
-                    "jq -r 'map_values(select(.code == \"",
-                    vm.toString(code),
-                    "\")) | length' < ",
-                    path,
-                    " | xargs cast abi-encode 'f(uint256)'"
-                )
-            )
+        string[] memory commands = new string[](3);
+        commands[0] = "bash";
+        commands[1] = "-c";
+        commands[2] = string.concat(
+            "jq -r 'map_values(select(.code == \"",
+            vm.toString(code),
+            "\")) | length' < ",
+            path,
+            " | xargs cast abi-encode 'f(uint256)'"
         );
-        return abi.decode(result, (uint256));
+        return abi.decode(Process.run(commands), (uint256));
     }
 
     /// @notice Returns the number of accounts that have a particular slot set.
     function getPredeployCountWithSlotSet(string memory path, bytes32 slot) internal returns (uint256) {
-        bytes memory result = bytes(
-            Process.bash(
-                string.concat(
-                    "jq 'map_values(.storage | select(has(\"",
-                    vm.toString(slot),
-                    "\"))) | keys | length' < ",
-                    path,
-                    " | xargs cast abi-encode 'f(uint256)'"
-                )
-            )
+        string[] memory commands = new string[](3);
+        commands[0] = "bash";
+        commands[1] = "-c";
+        commands[2] = string.concat(
+            "jq 'map_values(.storage | select(has(\"",
+            vm.toString(slot),
+            "\"))) | keys | length' < ",
+            path,
+            " | xargs cast abi-encode 'f(uint256)'"
         );
-        return abi.decode(result, (uint256));
+        return abi.decode(Process.run(commands), (uint256));
     }
 
     /// @notice Returns the number of accounts that have a particular slot set to a particular value.
@@ -97,31 +107,30 @@ contract L2GenesisTest is Test {
         internal
         returns (uint256)
     {
-        bytes memory result = bytes(
-            Process.bash(
-                string.concat(
-                    "jq 'map_values(.storage | select(.\"",
-                    vm.toString(slot),
-                    "\" == \"",
-                    vm.toString(value),
-                    "\")) | length' < ",
-                    path,
-                    " | xargs cast abi-encode 'f(uint256)'"
-                )
-            )
+        string[] memory commands = new string[](3);
+        commands[0] = "bash";
+        commands[1] = "-c";
+        commands[2] = string.concat(
+            "jq 'map_values(.storage | select(.\"",
+            vm.toString(slot),
+            "\" == \"",
+            vm.toString(value),
+            "\")) | length' < ",
+            path,
+            " | xargs cast abi-encode 'f(uint256)'"
         );
-        return abi.decode(result, (uint256));
+        return abi.decode(Process.run(commands), (uint256));
     }
 
     /// @notice Tests the genesis predeploys setup using a temp file for the case where useInterop is false.
-    function test_genesisPredeploys_notUsingInterop_works() external {
+    function test_genesis_predeploys_notUsingInterop() external {
         string memory path = tmpfile();
         _test_genesis_predeploys(path, false);
         deleteFile(path);
     }
 
     /// @notice Tests the genesis predeploys setup using a temp file for the case where useInterop is true.
-    function test_genesisPredeploys_usingInterop_works() external {
+    function test_genesis_predeploys_usingInterop() external {
         string memory path = tmpfile();
         _test_genesis_predeploys(path, true);
         deleteFile(path);
@@ -139,8 +148,8 @@ contract L2GenesisTest is Test {
         // 2 predeploys do not have proxies
         assertEq(getCodeCount(_path, "Proxy.sol:Proxy"), Predeploys.PREDEPLOY_COUNT - 2);
 
-        // 22 proxies have the implementation set if useInterop is true and 17 if useInterop is false
-        assertEq(getPredeployCountWithSlotSet(_path, Constants.PROXY_IMPLEMENTATION_ADDRESS), _useInterop ? 22 : 17);
+        // 24 proxies have the implementation set if useInterop is true and 17 if useInterop is false
+        assertEq(getPredeployCountWithSlotSet(_path, Constants.PROXY_IMPLEMENTATION_ADDRESS), _useInterop ? 24 : 17);
 
         // All proxies except 2 have the proxy 1967 admin slot set to the proxy admin
         assertEq(
@@ -154,7 +163,7 @@ contract L2GenesisTest is Test {
     }
 
     /// @notice Tests the number of accounts in the genesis setup
-    function test_allocs_size_works() external {
+    function test_allocs_size() external {
         withTempDump(_test_allocs_size);
     }
 
@@ -177,9 +186,8 @@ contract L2GenesisTest is Test {
         expected += 2048 - 2; // predeploy proxies
         expected += 21; // predeploy implementations (excl. legacy erc20-style eth and legacy message sender)
         expected += 256; // precompiles
-        expected += 14; // preinstalls
+        expected += 13; // preinstalls
         expected += 1; // 4788 deployer account
-        expected += 1; // 2935 deployer account
         // 16 prefunded dev accounts are excluded
         assertEq(expected, getJSONKeyCount(_path), "key count check");
 

@@ -1,24 +1,23 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.25;
+pragma solidity 0.8.15;
 
 // Testing utilities
-import { Test } from "forge-std/Test.sol";
+import { Bridge_Initializer } from "test/setup/Bridge_Initializer.sol";
 
 // Libraries
 import { Predeploys } from "src/libraries/Predeploys.sol";
-import { IL2ToL2CrossDomainMessenger } from "interfaces/L2/IL2ToL2CrossDomainMessenger.sol";
+import { IL2ToL2CrossDomainMessenger } from "src/L2/interfaces/IL2ToL2CrossDomainMessenger.sol";
 
 // Target contract
-import { SuperchainTokenBridge } from "src/L2/SuperchainTokenBridge.sol";
-import { ISuperchainTokenBridge } from "interfaces/L2/ISuperchainTokenBridge.sol";
-import { ISuperchainERC20 } from "interfaces/L2/ISuperchainERC20.sol";
+import { ISuperchainTokenBridge } from "src/L2/interfaces/ISuperchainTokenBridge.sol";
+import { ISuperchainERC20 } from "src/L2/interfaces/ISuperchainERC20.sol";
+import { IOptimismSuperchainERC20Factory } from "src/L2/interfaces/IOptimismSuperchainERC20Factory.sol";
 import { IERC20 } from "@openzeppelin/contracts/interfaces/IERC20.sol";
-import { IERC7802 } from "interfaces/L2/IERC7802.sol";
-import { MockSuperchainERC20Implementation } from "test/mocks/SuperchainERC20Implementation.sol";
+import { IERC7802 } from "src/L2/interfaces/IERC7802.sol";
 
 /// @title SuperchainTokenBridgeTest
 /// @notice Contract for testing the SuperchainTokenBridge contract.
-contract SuperchainTokenBridgeTest is Test {
+contract SuperchainTokenBridgeTest is Bridge_Initializer {
     address internal constant ZERO_ADDRESS = address(0);
     string internal constant NAME = "SuperchainERC20";
     string internal constant SYMBOL = "OSE";
@@ -33,20 +32,17 @@ contract SuperchainTokenBridgeTest is Test {
     event RelayERC20(address indexed token, address indexed from, address indexed to, uint256 amount, uint256 source);
 
     ISuperchainERC20 public superchainERC20;
-    ISuperchainTokenBridge public superchainTokenBridge;
 
     /// @notice Sets up the test suite.
-    function setUp() public {
-        vm.etch(Predeploys.SUPERCHAIN_TOKEN_BRIDGE, address(new SuperchainTokenBridge()).code);
-        superchainTokenBridge = ISuperchainTokenBridge(Predeploys.SUPERCHAIN_TOKEN_BRIDGE);
-        superchainERC20 = ISuperchainERC20(address(new MockSuperchainERC20Implementation()));
+    function setUp() public override {
+        super.enableInterop();
+        super.setUp();
 
-        // Skip the initialization until OptimismSuperchainERC20Factory is integrated again
-        // superchainERC20 = ISuperchainERC20(
-        //     IOptimismSuperchainERC20Factory(Predeploys.OPTIMISM_SUPERCHAIN_ERC20_FACTORY).deploy(
-        //         REMOTE_TOKEN, NAME, SYMBOL, 18
-        //     )
-        // );
+        superchainERC20 = ISuperchainERC20(
+            IOptimismSuperchainERC20Factory(Predeploys.OPTIMISM_SUPERCHAIN_ERC20_FACTORY).deploy(
+                REMOTE_TOKEN, NAME, SYMBOL, 18
+            )
+        );
     }
 
     /// @notice Helper function to setup a mock and expect a call to it.

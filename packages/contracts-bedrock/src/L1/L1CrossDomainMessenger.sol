@@ -8,9 +8,10 @@ import { CrossDomainMessenger } from "src/universal/CrossDomainMessenger.sol";
 import { Predeploys } from "src/libraries/Predeploys.sol";
 
 // Interfaces
-import { ISemver } from "interfaces/universal/ISemver.sol";
-import { ISuperchainConfig } from "interfaces/L1/ISuperchainConfig.sol";
-import { IOptimismPortal2 as IOptimismPortal } from "interfaces/L1/IOptimismPortal2.sol";
+import { ISemver } from "src/universal/interfaces/ISemver.sol";
+import { ISuperchainConfig } from "src/L1/interfaces/ISuperchainConfig.sol";
+import { ISystemConfig } from "src/L1/interfaces/ISystemConfig.sol";
+import { IOptimismPortal } from "src/L1/interfaces/IOptimismPortal.sol";
 
 /// @custom:proxied true
 /// @title L1CrossDomainMessenger
@@ -25,27 +26,43 @@ contract L1CrossDomainMessenger is CrossDomainMessenger, ISemver {
     /// @custom:network-specific
     IOptimismPortal public portal;
 
-    /// @custom:legacy
-    /// @custom:spacer systemConfig
-    /// @notice Spacer taking up the legacy `systemConfig` slot.
-    address private spacer_253_0_20;
+    /// @notice Address of the SystemConfig contract.
+    ISystemConfig public systemConfig;
 
     /// @notice Semantic version.
-    /// @custom:semver 2.5.0
-    string public constant version = "2.5.0";
+    /// @custom:semver 2.4.1-beta.2
+    string public constant version = "2.4.1-beta.2";
 
     /// @notice Constructs the L1CrossDomainMessenger contract.
-    constructor() {
-        _disableInitializers();
+    constructor() CrossDomainMessenger() {
+        initialize({
+            _superchainConfig: ISuperchainConfig(address(0)),
+            _portal: IOptimismPortal(payable(address(0))),
+            _systemConfig: ISystemConfig(address(0))
+        });
     }
 
     /// @notice Initializes the contract.
     /// @param _superchainConfig Contract of the SuperchainConfig contract on this network.
     /// @param _portal Contract of the OptimismPortal contract on this network.
-    function initialize(ISuperchainConfig _superchainConfig, IOptimismPortal _portal) external initializer {
+    /// @param _systemConfig Contract of the SystemConfig contract on this network.
+    function initialize(
+        ISuperchainConfig _superchainConfig,
+        IOptimismPortal _portal,
+        ISystemConfig _systemConfig
+    )
+        public
+        initializer
+    {
         superchainConfig = _superchainConfig;
         portal = _portal;
+        systemConfig = _systemConfig;
         __CrossDomainMessenger_init({ _otherMessenger: CrossDomainMessenger(Predeploys.L2_CROSS_DOMAIN_MESSENGER) });
+    }
+
+    /// @inheritdoc CrossDomainMessenger
+    function gasPayingToken() internal view override returns (address addr_, uint8 decimals_) {
+        (addr_, decimals_) = systemConfig.gasPayingToken();
     }
 
     /// @notice Getter function for the OptimismPortal contract on this chain.

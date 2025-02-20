@@ -16,6 +16,10 @@ import { SimpleStorage } from "test/mocks/SimpleStorage.sol";
 contract TestDrippie is Drippie {
     constructor(address owner) Drippie(owner) { }
 
+    function dripStatus(string memory name) external view returns (Drippie.DripStatus) {
+        return drips[name].status;
+    }
+
     function dripStateLast(string memory name) external view returns (uint256) {
         return drips[name].last;
     }
@@ -127,12 +131,12 @@ contract Drippie_Test is Test {
         vm.prank(drippie.owner());
         drippie.create(dripName, cfg);
 
-        Drippie.DripStatus status = drippie.getDripStatus(dripName);
+        Drippie.DripStatus status = drippie.dripStatus(dripName);
         Drippie.DripConfig memory config = drippie.dripConfig(dripName);
 
         assertEq(uint256(status), uint256(Drippie.DripStatus.PAUSED));
 
-        assertEq(drippie.getDripInterval(dripName), cfg.interval);
+        assertEq(config.interval, cfg.interval);
         assertEq(config.reentrant, cfg.reentrant);
         assertEq(address(config.dripcheck), address(cfg.dripcheck));
         assertEq(config.checkparams, cfg.checkparams);
@@ -182,7 +186,7 @@ contract Drippie_Test is Test {
         address owner = drippie.owner();
 
         {
-            Drippie.DripStatus status = drippie.getDripStatus(dripName);
+            Drippie.DripStatus status = drippie.dripStatus(dripName);
             assertEq(uint256(status), uint256(Drippie.DripStatus.PAUSED));
         }
 
@@ -194,7 +198,7 @@ contract Drippie_Test is Test {
         drippie.status(dripName, Drippie.DripStatus.ACTIVE);
 
         {
-            Drippie.DripStatus status = drippie.getDripStatus(dripName);
+            Drippie.DripStatus status = drippie.dripStatus(dripName);
             assertEq(uint256(status), uint256(Drippie.DripStatus.ACTIVE));
         }
 
@@ -206,7 +210,7 @@ contract Drippie_Test is Test {
         drippie.status(dripName, Drippie.DripStatus.PAUSED);
 
         {
-            Drippie.DripStatus status = drippie.getDripStatus(dripName);
+            Drippie.DripStatus status = drippie.dripStatus(dripName);
             assertEq(uint256(status), uint256(Drippie.DripStatus.PAUSED));
         }
     }
@@ -248,7 +252,7 @@ contract Drippie_Test is Test {
 
         drippie.status(dripName, Drippie.DripStatus.ARCHIVED);
 
-        Drippie.DripStatus status = drippie.getDripStatus(dripName);
+        Drippie.DripStatus status = drippie.dripStatus(dripName);
         assertEq(uint256(status), uint256(Drippie.DripStatus.ARCHIVED));
     }
 
@@ -459,7 +463,7 @@ contract Drippie_Test is Test {
     function test_not_active_reverts() external {
         _createDefaultDrip(dripName);
 
-        Drippie.DripStatus status = drippie.getDripStatus(dripName);
+        Drippie.DripStatus status = drippie.dripStatus(dripName);
         assertEq(uint256(status), uint256(Drippie.DripStatus.PAUSED));
 
         vm.prank(drippie.owner());

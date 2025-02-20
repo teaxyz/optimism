@@ -2,51 +2,101 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
-
-	"github.com/ethereum-optimism/optimism/packages/contracts-bedrock/scripts/checks/common"
+	"sync"
+	"sync/atomic"
 )
 
 var importPattern = regexp.MustCompile(`import\s*{([^}]+)}`)
 var asPattern = regexp.MustCompile(`(\S+)\s+as\s+(\S+)`)
 
 func main() {
-	if _, err := common.ProcessFilesGlob(
-		[]string{"src/**/*.sol", "scripts/**/*.sol", "test/**/*.sol", "interfaces/**/*.sol"},
-		[]string{"src/dispute/lib/Types.sol"},
-		processFile,
-	); err != nil {
-		fmt.Printf("error: %v\n", err)
+	if err := run(); err != nil {
+		writeStderr("an error occurred: %v", err)
 		os.Exit(1)
 	}
 }
 
-func processFile(filePath string) (*common.Void, []error) {
+func writeStderr(msg string, args ...any) {
+	_, _ = fmt.Fprintf(os.Stderr, msg+"\n", args...)
+}
+
+func run() error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current working directory: %w", err)
+	}
+
+	var hasErr atomic.Bool
+	var outMtx sync.Mutex
+	fail := func(msg string, args ...any) {
+		outMtx.Lock()
+		writeStderr("❌  "+msg, args...)
+		outMtx.Unlock()
+		hasErr.Store(true)
+	}
+
+	dirs := []string{"src", "scripts", "test"}
+	sem := make(chan struct{}, runtime.NumCPU())
+
+	for _, dir := range dirs {
+		dirPath := filepath.Join(cwd, dir)
+		if _, err := os.Stat(dirPath); errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+
+		err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if !info.IsDir() && strings.HasSuffix(info.Name(), ".sol") {
+				sem <- struct{}{}
+				go func() {
+					defer func() { <-sem }()
+					processFile(path, fail)
+				}()
+			}
+			return nil
+		})
+
+		if err != nil {
+			return fmt.Errorf("failed to walk directory %s: %w", dir, err)
+		}
+	}
+
+	for i := 0; i < cap(sem); i++ {
+		sem <- struct{}{}
+	}
+
+	if hasErr.Load() {
+		return errors.New("unused imports check failed, see logs above")
+	}
+
+	return nil
+}
+
+func processFile(filePath string, fail func(string, ...any)) {
 	content, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, []error{fmt.Errorf("%s: failed to read file: %w", filePath, err)}
+		fail("%s: failed to read file: %v", filePath, err)
+		return
 	}
 
 	imports := findImports(string(content))
-	var unusedImports []string
-	for _, imp := range imports {
-		if !isImportUsed(imp, string(content)) {
-			unusedImports = append(unusedImports, imp)
-		}
-	}
+	unusedImports := checkUnusedImports(imports, string(content))
 
 	if len(unusedImports) > 0 {
-		var errors []error
+		fail("File: %s\nUnused imports:", filePath)
 		for _, unused := range unusedImports {
-			errors = append(errors, fmt.Errorf("%s", unused))
+			fail("  - %s", unused)
 		}
-		return nil, errors
 	}
-
-	return nil, nil
 }
 
 func findImports(content string) []string {
@@ -56,44 +106,42 @@ func findImports(content string) []string {
 		if len(match) > 1 {
 			importList := strings.Split(match[1], ",")
 			for _, imp := range importList {
-				imp = strings.TrimSpace(imp)
-				if asMatch := asPattern.FindStringSubmatch(imp); len(asMatch) > 2 {
-					// Use the renamed identifier (after 'as')
-					imports = append(imports, strings.TrimSpace(asMatch[2]))
-				} else {
-					imports = append(imports, imp)
-				}
+				imports = append(imports, strings.TrimSpace(imp))
 			}
 		}
 	}
 	return imports
 }
 
-func isImportUsed(imp, content string) bool {
-	// Use a regular expression to match the import as a whole word
-	wordPattern := fmt.Sprintf(`\b%s\b`, regexp.QuoteMeta(imp))
-	scanner := bufio.NewScanner(strings.NewReader(content))
+func checkUnusedImports(imports []string, content string) []string {
+	var unusedImports []string
+	for _, imp := range imports {
+		searchTerm := imp
+		displayName := imp
 
-	importOpen := false
+		if match := asPattern.FindStringSubmatch(imp); len(match) > 2 {
+			searchTerm = match[2]
+			displayName = fmt.Sprintf("%s as %s", match[1], match[2])
+		}
+
+		if !isImportUsed(searchTerm, content) {
+			unusedImports = append(unusedImports, displayName)
+		}
+	}
+	return unusedImports
+}
+
+func isImportUsed(imp, content string) bool {
+	scanner := bufio.NewScanner(strings.NewReader(content))
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(strings.TrimSpace(line), "//") || strings.HasPrefix(strings.TrimSpace(line), "/*") || strings.HasPrefix(strings.TrimSpace(line), "*") || strings.HasPrefix(strings.TrimSpace(line), "*/") {
+		if strings.HasPrefix(strings.TrimSpace(line), "//") {
 			continue
 		}
-		if importOpen {
-			if strings.Contains(line, "}") {
-				importOpen = false
-			}
+		if strings.Contains(line, "import") {
 			continue
 		}
-		if strings.Contains(line, "import {") {
-			if !strings.Contains(line, "}") {
-				importOpen = true
-			}
-			continue
-		}
-
-		if matched, _ := regexp.MatchString(wordPattern, line); matched {
+		if strings.Contains(line, imp) {
 			return true
 		}
 	}

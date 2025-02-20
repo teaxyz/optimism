@@ -4,26 +4,17 @@ pragma solidity ^0.8.0;
 import { Vm } from "forge-std/Vm.sol";
 import { stdJson } from "forge-std/StdJson.sol";
 import { LibString } from "@solady/utils/LibString.sol";
+import { Executables } from "scripts/libraries/Executables.sol";
 import { Process } from "scripts/libraries/Process.sol";
 
 /// @notice Contains information about a storage slot. Mirrors the layout of the storage
 ///         slot object in Forge artifacts so that we can deserialize JSON into this struct.
-struct ForgeStorageSlot {
-    uint256 astId;
-    string _contract;
-    string label;
-    uint256 offset;
-    string slot;
-    string _type;
-}
-
-/// @notice Same as ForgeStorageSlot but with the slot field as a uint256 instead of a string.
 struct StorageSlot {
     uint256 astId;
     string _contract;
     string label;
     uint256 offset;
-    uint256 slot;
+    string slot;
     string _type;
 }
 
@@ -46,7 +37,14 @@ library ForgeArtifacts {
     /// @notice Removes the semantic versioning from a contract name. The semver will exist if the contract is compiled
     /// more than once with different versions of the compiler.
     function _stripSemver(string memory _name) internal returns (string memory out_) {
-        out_ = Process.bash(string.concat("echo ", _name, " | sed -E 's/[.][0-9]+\\.[0-9]+\\.[0-9]+//g'"));
+        string[] memory cmd = new string[](3);
+        cmd[0] = Executables.bash;
+        cmd[1] = "-c";
+        cmd[2] = string.concat(
+            Executables.echo, " ", _name, " | ", Executables.sed, " -E 's/[.][0-9]+\\.[0-9]+\\.[0-9]+//g'"
+        );
+        bytes memory res = Process.run(cmd);
+        out_ = string(res);
     }
 
     /// @notice Builds the fully qualified name of a contract. Assumes that the
@@ -58,33 +56,48 @@ library ForgeArtifacts {
 
     /// @notice Returns the storage layout for a deployed contract.
     function getStorageLayout(string memory _name) internal returns (string memory layout_) {
-        layout_ = Process.bash(string.concat("jq -r '.storageLayout' < ", _getForgeArtifactPath(_name)));
+        string[] memory cmd = new string[](3);
+        cmd[0] = Executables.bash;
+        cmd[1] = "-c";
+        cmd[2] = string.concat(Executables.jq, " -r '.storageLayout' < ", _getForgeArtifactPath(_name));
+        bytes memory res = Process.run(cmd);
+        layout_ = string(res);
     }
 
     /// @notice Returns the abi from a the forge artifact
     function getAbi(string memory _name) internal returns (string memory abi_) {
-        abi_ = Process.bash(string.concat("jq -r '.abi' < ", _getForgeArtifactPath(_name)));
+        string[] memory cmd = new string[](3);
+        cmd[0] = Executables.bash;
+        cmd[1] = "-c";
+        cmd[2] = string.concat(Executables.jq, " -r '.abi' < ", _getForgeArtifactPath(_name));
+        bytes memory res = Process.run(cmd);
+        abi_ = string(res);
     }
 
     /// @notice Returns the methodIdentifiers from the forge artifact
     function getMethodIdentifiers(string memory _name) internal returns (string[] memory ids_) {
-        string memory res = Process.bash({
-            _command: string.concat("jq '.methodIdentifiers // {} | keys ' < ", _getForgeArtifactPath(_name)),
-            _allowEmpty: true
-        });
-        ids_ = stdJson.readStringArray(res, "");
+        string[] memory cmd = new string[](3);
+        cmd[0] = Executables.bash;
+        cmd[1] = "-c";
+        cmd[2] = string.concat(Executables.jq, " '.methodIdentifiers // {} | keys ' < ", _getForgeArtifactPath(_name));
+        bytes memory res = Process.run(cmd, true);
+        ids_ = stdJson.readStringArray(string(res), "");
     }
 
     /// @notice Returns the kind of contract (i.e. library, contract, or interface).
     /// @param _name The name of the contract to get the kind of.
     /// @return kind_ The kind of contract ("library", "contract", or "interface").
     function getContractKind(string memory _name) internal returns (string memory kind_) {
-        kind_ = Process.bash(
-            string.concat(
-                "jq -r '.ast.nodes[] | select(.nodeType == \"ContractDefinition\") | .contractKind' < ",
-                _getForgeArtifactPath(_name)
-            )
+        string[] memory cmd = new string[](3);
+        cmd[0] = Executables.bash;
+        cmd[1] = "-c";
+        cmd[2] = string.concat(
+            Executables.jq,
+            " -r '.ast.nodes[] | select(.nodeType == \"ContractDefinition\") | .contractKind' < ",
+            _getForgeArtifactPath(_name)
         );
+        bytes memory res = Process.run(cmd);
+        kind_ = string(res);
     }
 
     /// @notice Returns whether or not a contract is proxied.
@@ -96,14 +109,19 @@ library ForgeArtifacts {
         // contract. We should consider determining whether a contract is proxied based on the
         // deployment script since it's the source of truth for that. Current deployment script
         // does not make this easy but an updated script should likely make this possible.
-        string memory res = Process.bash(
-            string.concat(
-                "jq -r '.rawMetadata' ",
-                _getForgeArtifactPath(_name),
-                " | jq -r '.output.devdoc' | jq -r 'has(\"custom:proxied\")'"
-            )
+        string[] memory cmd = new string[](3);
+        cmd[0] = Executables.bash;
+        cmd[1] = "-c";
+        cmd[2] = string.concat(
+            Executables.jq,
+            " -r '.rawMetadata' ",
+            _getForgeArtifactPath(_name),
+            " | ",
+            Executables.jq,
+            " -r '.output.devdoc' | jq -r 'has(\"custom:proxied\")'"
         );
-        out_ = stdJson.readBool(res, "");
+        bytes memory res = Process.run(cmd);
+        out_ = stdJson.readBool(string(res), "");
     }
 
     /// @notice Returns whether or not a contract is predeployed.
@@ -112,18 +130,27 @@ library ForgeArtifacts {
     function isPredeployedContract(string memory _name) internal returns (bool out_) {
         // TODO: Similar to the above, using the `@custom:predeployed` tag is not reliable but
         // functional for now. Deployment script should make this easier to determine.
-        string memory res = Process.bash(
-            string.concat(
-                "jq -r '.rawMetadata' ",
-                _getForgeArtifactPath(_name),
-                " | jq -r '.output.devdoc' | jq -r 'has(\"custom:predeploy\")'"
-            )
+        string[] memory cmd = new string[](3);
+        cmd[0] = Executables.bash;
+        cmd[1] = "-c";
+        cmd[2] = string.concat(
+            Executables.jq,
+            " -r '.rawMetadata' ",
+            _getForgeArtifactPath(_name),
+            " | ",
+            Executables.jq,
+            " -r '.output.devdoc' | jq -r 'has(\"custom:predeploy\")'"
         );
-        out_ = stdJson.readBool(res, "");
+        bytes memory res = Process.run(cmd);
+        out_ = stdJson.readBool(string(res), "");
     }
 
     function _getForgeArtifactDirectory(string memory _name) internal returns (string memory dir_) {
-        string memory res = Process.bash("forge config --json | jq -r .out");
+        string[] memory cmd = new string[](3);
+        cmd[0] = Executables.bash;
+        cmd[1] = "-c";
+        cmd[2] = string.concat(Executables.forge, " config --json | ", Executables.jq, " -r .out");
+        bytes memory res = Process.run(cmd);
         string memory contractName = _stripSemver(_name);
         dir_ = string.concat(vm.projectRoot(), "/", string(res), "/", contractName, ".sol");
     }
@@ -137,10 +164,19 @@ library ForgeArtifacts {
             return path;
         }
 
-        string memory res = Process.bash(
-            string.concat("ls -1 --color=never ", directory, " | jq -R -s -c 'split(\"\n\") | map(select(length > 0))'")
+        string[] memory cmd = new string[](3);
+        cmd[0] = Executables.bash;
+        cmd[1] = "-c";
+        cmd[2] = string.concat(
+            Executables.ls,
+            " -1 --color=never ",
+            directory,
+            " | ",
+            Executables.jq,
+            " -R -s -c 'split(\"\n\") | map(select(length > 0))'"
         );
-        string[] memory files = stdJson.readStringArray(res, "");
+        bytes memory res = Process.run(cmd);
+        string[] memory files = stdJson.readStringArray(string(res), "");
         out_ = string.concat(directory, "/", files[0]);
     }
 
@@ -152,6 +188,8 @@ library ForgeArtifacts {
 
     /// @notice Pulls the `_initialized` storage slot information from the Forge artifacts for a given contract.
     function getInitializedSlot(string memory _contractName) internal returns (StorageSlot memory slot_) {
+        string memory storageLayout = getStorageLayout(_contractName);
+
         // FaultDisputeGame and PermissionedDisputeGame use a different name for the initialized storage slot.
         string memory slotName = "_initialized";
         string memory slotType = "t_uint8";
@@ -160,61 +198,31 @@ library ForgeArtifacts {
             slotType = "t_bool";
         }
 
-        string memory storageLayout = getStorageLayout(_contractName);
-        bytes memory rawSlot = vm.parseJson(
-            Process.bash(
-                string.concat(
-                    "echo '",
-                    storageLayout,
-                    "' | jq '.storage[] | select(.label == \"",
-                    slotName,
-                    "\" and .type == \"",
-                    slotType,
-                    "\")'"
-                )
-            )
+        string[] memory command = new string[](3);
+        command[0] = Executables.bash;
+        command[1] = "-c";
+        command[2] = string.concat(
+            Executables.echo,
+            " '",
+            storageLayout,
+            "'",
+            " | ",
+            Executables.jq,
+            " '.storage[] | select(.label == \"",
+            slotName,
+            "\" and .type == \"",
+            slotType,
+            "\")'"
         );
-        ForgeStorageSlot memory slot = abi.decode(rawSlot, (ForgeStorageSlot));
-        slot_ = StorageSlot({
-            astId: slot.astId,
-            _contract: slot._contract,
-            label: slot.label,
-            offset: slot.offset,
-            slot: vm.parseUint(slot.slot),
-            _type: slot._type
-        });
-    }
-
-    /// @notice Returns the storage slot for a given contract and slot name
-    function getSlot(
-        string memory _contractName,
-        string memory _slotName
-    )
-        internal
-        returns (StorageSlot memory slot_)
-    {
-        string memory storageLayout = getStorageLayout(_contractName);
-        bytes memory rawSlot = vm.parseJson(
-            Process.bash(
-                string.concat("echo '", storageLayout, "' | jq '.storage[] | select(.label == \"", _slotName, "\")'")
-            )
-        );
-        ForgeStorageSlot memory slot = abi.decode(rawSlot, (ForgeStorageSlot));
-        slot_ = StorageSlot({
-            astId: slot.astId,
-            _contract: slot._contract,
-            label: slot.label,
-            offset: slot.offset,
-            slot: vm.parseUint(slot.slot),
-            _type: slot._type
-        });
+        bytes memory rawSlot = vm.parseJson(string(Process.run(command)));
+        slot_ = abi.decode(rawSlot, (StorageSlot));
     }
 
     /// @notice Returns whether or not a contract is initialized.
     ///         Needs the name to get the storage layout.
     function isInitialized(string memory _name, address _address) internal returns (bool initialized_) {
         StorageSlot memory slot = ForgeArtifacts.getInitializedSlot(_name);
-        bytes32 slotVal = vm.load(_address, bytes32(slot.slot));
+        bytes32 slotVal = vm.load(_address, bytes32(vm.parseUint(slot.slot)));
         initialized_ = uint8((uint256(slotVal) >> (slot.offset * 8)) & 0xFF) != 0;
     }
 
@@ -237,19 +245,25 @@ library ForgeArtifacts {
             }
         }
 
-        contractNames_ = abi.decode(
-            vm.parseJson(
-                Process.bash(
-                    string.concat(
-                        "find ",
-                        _path,
-                        bytes(pathExcludesPat).length > 0 ? string.concat(" ! \\( ", pathExcludesPat, " \\)") : "",
-                        " -type f -exec basename {} \\; | sed 's/\\.[^.]*$//' | jq -R -s 'split(\"\n\")[:-1]'"
-                    )
-                )
-            ),
-            (string[])
+        string[] memory command = new string[](3);
+        command[0] = Executables.bash;
+        command[1] = "-c";
+        command[2] = string.concat(
+            Executables.find,
+            " ",
+            _path,
+            bytes(pathExcludesPat).length > 0 ? string.concat(" ! \\( ", pathExcludesPat, " \\)") : "",
+            " -type f ",
+            "-exec basename {} \\;",
+            " | ",
+            Executables.sed,
+            " 's/\\.[^.]*$//'",
+            " | ",
+            Executables.jq,
+            " -R -s 'split(\"\n\")[:-1]'"
         );
+
+        contractNames_ = abi.decode(vm.parseJson(string(Process.run(command))), (string[]));
     }
 
     /// @notice Returns the function ABIs of all L1 contracts.

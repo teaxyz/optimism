@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-// Contracts
-import { Faucet } from "src/periphery/faucet/Faucet.sol";
+import { Faucet } from "../Faucet.sol";
 
 /// @title  IFaucetAuthModule
 /// @notice Interface for faucet authentication modules.
