@@ -73,6 +73,9 @@ contract GasPriceOracle is TeaWAPOracle, ISemver {
 
     /// @notice Pulls the latest price from the oracle and updates the ratio storage slot.
     /// @dev This function MUST NOT revert, as it is called by the System TX when updating L1Block.sol.
+    /// @dev SECURITY NOTE: Potential race condition - if oracle succeeds, price is ALWAYS updated even if
+    ///      called multiple times in same block. In low-activity chains, pending transactions could be
+    ///      affected by intra-block price changes. This is a known limitation of the design.
     function updateGasTokenPriceRatio() external {
         require(msg.sender == Predeploys.L1_BLOCK_ATTRIBUTES, "GasPriceOracle: only L1_BLOCK_ATTRIBUTES can update");
 
@@ -95,6 +98,15 @@ contract GasPriceOracle is TeaWAPOracle, ISemver {
                 }
             }
         }
+    }
+
+    /// @notice SECURITY FIX: Checks if the stored price is stale (older than MAX_ORACLE_DOWNTIME)
+    /// @dev REASON: Allows external contracts/monitoring to check if price hasn't been updated recently
+    ///      and might not reflect current market conditions
+    /// @return true if the price is stale and should not be trusted
+    function isPriceStale() public view returns (bool) {
+        (uint96 lastUpdate,) = getLatestPrice();
+        return block.timestamp > lastUpdate + MAX_ORACLE_DOWNTIME;
     }
 
     /// @notice returns an upper bound for the L1 fee for a given transaction size.
