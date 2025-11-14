@@ -11,6 +11,9 @@ import { Arithmetic } from "src/libraries/Arithmetic.sol";
 import { ISemver } from "interfaces/universal/ISemver.sol";
 import { IL1Block } from "interfaces/L2/IL1Block.sol";
 
+// TEA ORACLE
+import { TeaWAPOracle } from "./TeaWAPOracle.sol";
+
 /// @custom:proxied true
 /// @custom:predeploy 0x420000000000000000000000000000000000000F
 /// @title GasPriceOracle
@@ -25,13 +28,13 @@ import { IL1Block } from "interfaces/L2/IL1Block.sol";
 ///         - event OverheadUpdated(uint256 overhead);
 ///         - event ScalarUpdated(uint256 scalar);
 ///         - event DecimalsUpdated(uint256 decimals);
-contract GasPriceOracle is ISemver {
+contract GasPriceOracle is TeaWAPOracle, ISemver {
     /// @notice Number of decimals used in the scalar.
     uint256 public constant DECIMALS = 6;
 
     /// @notice Semantic version.
     /// @custom:semver 1.6.0
-    string public constant version = "1.6.0";
+    string public constant version = "1.6.0+CGT";
 
     /// @notice This is the intercept value for the linear regression used to estimate the final size of the
     ///         compressed transaction.
@@ -57,17 +60,23 @@ contract GasPriceOracle is ISemver {
     /// @notice Indicates whether the network has gone through the Jovian upgrade.
     bool public isJovian;
 
+    /// @notice Event emitted if the oracle fails.
+    /// @dev This can be used by an off chain watcher to notify the team to
+    ///      investigate the oracle and ensure the fallback price is accurate.
+    event OracleReturnedFallbackPrice();
+
     /// @notice Computes the L1 portion of the fee based on the size of the rlp encoded input
     ///         transaction, the current L1 base fee, and the various dynamic parameters.
     /// @param _data Unsigned fully RLP-encoded transaction to get the L1 fee for.
     /// @return L1 fee that should be paid for the tx
     function getL1Fee(bytes memory _data) external view returns (uint256) {
+        (, uint160 latestPrice) = getLatestPrice();
         if (isFjord) {
-            return _getL1FeeFjord(_data);
+            return latestPrice * _getL1FeeFjord(_data) / 1e18;
         } else if (isEcotone) {
-            return _getL1FeeEcotone(_data);
+            return latestPrice * _getL1FeeEcotone(_data) / 1e18;
         }
-        return _getL1FeeBedrock(_data);
+        return latestPrice * _getL1FeeBedrock(_data) / 1e18;
     }
 
     /// @notice returns an upper bound for the L1 fee for a given transaction size.
@@ -84,7 +93,34 @@ contract GasPriceOracle is ISemver {
         // txSize / 255 + 16 is the practical fastlz upper-bound covers %99.99 txs.
         uint256 flzUpperBound = txSize + txSize / 255 + 16;
 
-        return _fjordL1Cost(flzUpperBound);
+        (, uint160 latestPrice) = getLatestPrice();
+        return latestPrice * _fjordL1Cost(flzUpperBound) / 1e18;
+    }
+
+    /// @notice Pulls the latest price from the oracle and updates the ratio storage slot.
+    /// @dev This function MUST NOT revert, as it is called by the System TX when updating L1Block.sol.
+    function updateGasTokenPriceRatio() external {
+        require(msg.sender == Predeploys.L1_BLOCK_ATTRIBUTES, "GasPriceOracle: only L1_BLOCK_ATTRIBUTES can update");
+
+        // The oracle calculates the current price of 1e18 ETH in TEA (18 decimals).
+        (bool validPrice, uint160 currentPrice) = teaPerETH();
+
+        // If the call didn't return the fallback price, it succeeded.
+        if (validPrice) {
+            _setLatestPrice(currentPrice);
+        } else {
+            // If the call returned the fallback price, it failed.
+            emit OracleReturnedFallbackPrice();
+
+            // If the last result is from within the past 5 minutes, keep it.
+            // Otherwise, replace it with currentPrice (fallback)
+            (uint96 lastUpdate, uint160 lastPrice) = getLatestPrice();
+            if (currentPrice != lastPrice) {
+                if (block.timestamp > lastUpdate + MAX_ORACLE_DOWNTIME) {
+                    _setLatestPrice(currentPrice);
+                }
+            }
+        }
     }
 
     /// @notice Set chain to be Ecotone chain (callable by depositor account)

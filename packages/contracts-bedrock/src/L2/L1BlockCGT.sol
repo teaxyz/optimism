@@ -8,6 +8,7 @@ import { L1Block } from "src/L2/L1Block.sol";
 
 // Interfaces
 import { ILiquidityController } from "interfaces/L2/ILiquidityController.sol";
+import { IGasPriceOracle } from "interfaces/L2/IGasPriceOracle.sol";
 
 /// @custom:proxied true
 /// @custom:predeploy 0x4200000000000000000000000000000000000015
@@ -69,4 +70,35 @@ contract L1BlockCGT is L1Block {
             sstore(slot, 1)
         }
     }
+
+    // TEA overrides
+    function setL1BlockValuesEcotone() public override {
+        super.setL1BlockValuesEcotone();
+
+        // This call must never revert.
+        IGasPriceOracle(Predeploys.GAS_PRICE_ORACLE).updateGasTokenPriceRatio();
+    }
+
+    function setL1BlockValues(
+        uint64 _number,
+        uint64 _timestamp,
+        uint256 _basefee,
+        bytes32 _hash,
+        uint64 _sequenceNumber,
+        bytes32 _batcherHash,
+        uint256 _l1FeeOverhead,
+        uint256 _l1FeeScalar
+    )
+        public
+        override
+    {
+        // Is it safe to change from external to public in this case?
+        super.setL1BlockValues(
+            _number, _timestamp, _basefee, _hash, _sequenceNumber, _batcherHash, _l1FeeOverhead, _l1FeeScalar
+        );
+
+        // This call must never revert.
+        IGasPriceOracle(Predeploys.GAS_PRICE_ORACLE).updateGasTokenPriceRatio();
+    }
+
 }

@@ -26,5 +26,19 @@ interface IGasPriceOracle {
     function setJovian() external;
     function version() external view returns (string memory);
 
+    function updateGasTokenPriceRatio() external;
+    function convertETHToTea(uint256) external view returns (uint256);
+    function teaPerETH() external view returns (uint160);
+    function getLatestPrice() external view returns (uint96, uint160);
+    function getOracleConfig() external view returns (address,uint16,uint80,bool,address);
+    function setOracleConfig(uint16,uint80,address) external;
+    function setFallbackPrice(uint160) external;
+    function setOracleConfig(uint96,address) external;
+    function CUSTOM_GAS_TOKEN_ORACLE_SLOT() external view returns (bytes32);
+    function WETH_ADDRESS_SLOT() external view returns (bytes32);
+    function CUSTOM_GAS_TOKEN_PRICE_SLOT() external view returns (bytes32);
+    function FALLBACK_PRICE_SLOT() external view returns (bytes32);
+
+
     function __constructor__() external;
 }

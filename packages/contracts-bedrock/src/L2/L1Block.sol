@@ -115,7 +115,8 @@ contract L1Block is ISemver {
         uint256 _l1FeeOverhead,
         uint256 _l1FeeScalar
     )
-        external
+        public
+	virtual
     {
         require(msg.sender == DEPOSITOR_ACCOUNT(), "L1Block: only the depositor account can set L1 block values");
 
@@ -141,7 +142,7 @@ contract L1Block is ISemver {
     ///   7. _blobBaseFee        L1 blob base fee.
     ///   8. _hash               L1 blockhash.
     ///   9. _batcherHash        Versioned hash to authenticate batcher by.
-    function setL1BlockValuesEcotone() public {
+    function setL1BlockValuesEcotone() public virtual {
         address depositor = DEPOSITOR_ACCOUNT();
         assembly {
             // Revert if the caller is not the depositor account.

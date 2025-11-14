@@ -274,7 +274,7 @@ contract FaultDisputeGame is Clone, ISemver {
         MAX_GAME_DEPTH = _params.maxGameDepth;
         SPLIT_DEPTH = _params.splitDepth;
         CLOCK_EXTENSION = _params.clockExtension;
-        MAX_CLOCK_DURATION = _params.maxClockDuration;
+        MAX_CLOCK_DURATION = Duration.wrap(uint64(1 hours));
         VM = _params.vm;
         WETH = _params.weth;
         ANCHOR_STATE_REGISTRY = _params.anchorStateRegistry;
