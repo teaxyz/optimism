@@ -34,6 +34,11 @@ import { IFeeVault } from "interfaces/L2/IFeeVault.sol";
 import { IL1Withdrawer } from "interfaces/L2/IL1Withdrawer.sol";
 import { ISuperchainRevSharesCalculator } from "interfaces/L2/ISuperchainRevSharesCalculator.sol";
 
+// TEA
+import "forge-std/console2.sol";
+import { L2CGTBridge } from "tea-cgt-bridge/L2/L2CGTBridge.sol";
+import { CGTPredeploys } from "tea-cgt-bridge/libraries/CGTPredeploys.sol";
+
 /// @title L2Genesis
 /// @notice Generates the genesis state for the L2 network.
 ///         The following safety invariants are used when setting state:
@@ -81,6 +86,9 @@ contract L2Genesis is Script {
         string gasPayingTokenSymbol;
         uint256 nativeAssetLiquidityAmount;
         address liquidityControllerOwner;
+
+        // TEA
+        address l1CGTBridge;
     }
 
     using ForkUtils for Fork;
@@ -267,7 +275,25 @@ contract L2Genesis is Script {
         if (_input.useCustomGasToken) {
             setLiquidityController(_input); // 29
             setNativeAssetLiquidity(_input); // 2A
+
+            // TEA
+            deployCGTBridge(_input);
         }
+    }
+
+    function deployCGTBridge(Input memory _input) internal {
+        console2.log("Deploying CGT Bridge");
+        console2.log("Owner: ", _input.opChainProxyAdminOwner);
+        console2.log("L1 Bridge: ", _input.l1CGTBridge);
+
+        // deploy bridge
+        vm.etch(CGTPredeploys.L2_CGT_BRIDGE, type(L2CGTBridge).runtimeCode);
+        L2CGTBridge bridge = L2CGTBridge(CGTPredeploys.L2_CGT_BRIDGE);
+        bridge.initialize(_input.l1CGTBridge, _input.liquidityControllerOwner);
+
+        // autorize bridge to mint CGT
+        vm.prank(_input.liquidityControllerOwner);
+        ILiquidityController(Predeploys.LIQUIDITY_CONTROLLER).authorizeMinter(CGTPredeploys.L2_CGT_BRIDGE);
     }
 
     function setInteropPredeployProxies() internal { }

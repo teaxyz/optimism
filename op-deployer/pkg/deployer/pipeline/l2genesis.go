@@ -5,9 +5,8 @@ import (
 	"math/big"
 
 	"github.com/ethereum-optimism/optimism/op-chain-ops/genesis"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-
 	"github.com/ethereum-optimism/optimism/op-service/jsonutil"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/standard"
 
@@ -41,6 +40,9 @@ type cgtConfig struct {
 	GasPayingTokenSymbol       string
 	NativeAssetLiquidityAmount *big.Int
 	LiquidityControllerOwner   common.Address
+
+	// TEA
+	L1CGTBridge common.Address
 }
 
 func GenerateL2Genesis(pEnv *Env, intent *state.Intent, bundle ArtifactsBundle, st *state.State, chainID common.Hash) error {
@@ -118,6 +120,9 @@ func GenerateL2Genesis(pEnv *Env, intent *state.Intent, bundle ArtifactsBundle, 
 		GasPayingTokenSymbol:       cgt.GasPayingTokenSymbol,
 		NativeAssetLiquidityAmount: cgt.NativeAssetLiquidityAmount,
 		LiquidityControllerOwner:   cgt.LiquidityControllerOwner,
+
+		// TEA
+		L1CGTBridge: cgt.L1CGTBridge,
 	}); err != nil {
 		return fmt.Errorf("failed to call L2Genesis script: %w", err)
 	}
@@ -178,6 +183,9 @@ func buildCGTConfig(intent *state.ChainIntent) cgtConfig {
 			GasPayingTokenSymbol:       "",
 			NativeAssetLiquidityAmount: big.NewInt(0),
 			LiquidityControllerOwner:   common.Address{},
+
+			// TEA
+			L1CGTBridge: common.Address{},
 		}
 	}
 	return cgtConfig{
@@ -186,6 +194,9 @@ func buildCGTConfig(intent *state.ChainIntent) cgtConfig {
 		GasPayingTokenSymbol:       intent.CustomGasToken.Symbol,
 		NativeAssetLiquidityAmount: intent.GetInitialLiquidity(),
 		LiquidityControllerOwner:   intent.GetLiquidityControllerOwner(),
+
+		// TEA
+		L1CGTBridge: intent.GetL1CGTBridge(),
 	}
 }
 

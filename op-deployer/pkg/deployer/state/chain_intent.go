@@ -59,6 +59,9 @@ type CustomGasToken struct {
 	Symbol                   string         `json:"symbol,omitempty" toml:"symbol,omitempty"`
 	InitialLiquidity         *hexutil.Big   `json:"initialLiquidity" toml:"initialLiquidity"`
 	LiquidityControllerOwner common.Address `json:"liquidityControllerOwner" toml:"liquidityControllerOwner"`
+
+	// TEA
+	L1CGTBridge *common.Address `json:"l1CGTBridge" toml:"l1CGTBridge"`
 }
 
 type ChainIntent struct {
@@ -150,6 +153,10 @@ func (c *ChainIntent) Check() error {
 			return fmt.Errorf("%w: CustomGasToken.InitialLiquidity must be non-negative when custom gas token is enabled, chainId=%s", ErrIncompatibleValue, c.ID)
 		}
 		// LiquidityControllerOwner is optional - if not set, L2ProxyAdminOwner will be used as default
+
+		if c.CustomGasToken.L1CGTBridge == nil {
+			return fmt.Errorf("%w: CustomGasToken.L1CGTBridge must be set in CGT mode, chainId=%s", ErrIncompatibleValue, c.ID)
+		}
 	}
 
 	if c.DangerousAltDAConfig.UseAltDA {
@@ -198,4 +205,8 @@ func (c *ChainIntent) GetLiquidityControllerOwner() common.Address {
 // It's enabled when both Name and Symbol are provided.
 func (c *ChainIntent) IsCustomGasTokenEnabled() bool {
 	return c.CustomGasToken.Name != "" && c.CustomGasToken.Symbol != ""
+}
+
+func (c *ChainIntent) GetL1CGTBridge() common.Address {
+	return *c.CustomGasToken.L1CGTBridge
 }
