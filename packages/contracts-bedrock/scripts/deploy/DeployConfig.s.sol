@@ -86,6 +86,9 @@ contract DeployConfig is Script {
     uint256 public nativeAssetLiquidityAmount;
     address public liquidityControllerOwner;
 
+    // TEA
+    address public l1CGTBridge;
+
     // V2 Dispute Game Configuration
     uint256 public faultGameV2MaxGameDepth;
     uint256 public faultGameV2SplitDepth;
@@ -152,6 +155,9 @@ contract DeployConfig is Script {
         gasPayingTokenSymbol = _readOr(_json, "$.gasPayingTokenSymbol", "");
         nativeAssetLiquidityAmount = _readOr(_json, "$.nativeAssetLiquidityAmount", 0);
         liquidityControllerOwner = _readOr(_json, "$.liquidityControllerOwner", finalSystemOwner);
+
+        // TEA
+        l1CGTBridge = _readOr(_json, "$.l1CGTBridge", address(0));
 
         enableGovernance = _readOr(_json, "$.enableGovernance", false);
         systemConfigStartBlock = stdJson.readUint(_json, "$.systemConfigStartBlock");

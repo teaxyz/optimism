@@ -9,6 +9,11 @@ import { Fork } from "scripts/libraries/Config.sol";
 import { Encoding } from "src/libraries/Encoding.sol";
 import { stdError } from "forge-std/Test.sol";
 
+// TEA
+import { Predeploys } from "src/libraries/Predeploys.sol";
+import { GasPriceOracle } from "src/L2/GasPriceOracle.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+
 contract GasPriceOracle_Test is CommonTest {
     address depositor;
 
@@ -57,6 +62,18 @@ contract GasPriceOracleBedrock_Test is GasPriceOracle_Test {
             _l1FeeOverhead: l1FeeOverhead,
             _l1FeeScalar: l1FeeScalar
         });
+
+        // TEA. Set price 1 TEA = 1 ETH
+        vm.prank(Ownable(Predeploys.PROXY_ADMIN).owner());
+        gasPriceOracle.setFallbackPrice(1e18);
+
+        vm.prank(Predeploys.L1_BLOCK_ATTRIBUTES);
+        gasPriceOracle.updateGasTokenPriceRatio();
+
+        skip(6 minutes);
+
+        vm.prank(Predeploys.L1_BLOCK_ATTRIBUTES);
+        gasPriceOracle.updateGasTokenPriceRatio();
     }
 
     /// @dev Tests that `l1BaseFee` is set correctly.

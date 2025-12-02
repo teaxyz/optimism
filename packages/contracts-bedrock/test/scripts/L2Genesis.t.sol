@@ -23,6 +23,10 @@ import { ILiquidityController } from "interfaces/L2/ILiquidityController.sol";
 import { INativeAssetLiquidity } from "interfaces/L2/INativeAssetLiquidity.sol";
 import { Types } from "src/libraries/Types.sol";
 
+// TEA
+import { L2CGTBridge } from "tea-cgt-bridge/L2/L2CGTBridge.sol";
+import { CGTPredeploys } from "tea-cgt-bridge/libraries/CGTPredeploys.sol";
+
 /// @title L2Genesis_TestInit
 /// @notice Reusable test initialization for `L2Genesis` tests.
 abstract contract L2Genesis_TestInit is Test {
@@ -213,6 +217,12 @@ abstract contract L2Genesis_TestInit is Test {
         // Verify predeploys have code
         assertGt(Predeploys.LIQUIDITY_CONTROLLER.code.length, 0);
         assertGt(Predeploys.NATIVE_ASSET_LIQUIDITY.code.length, 0);
+
+        // TEA
+        assertGt(CGTPredeploys.L2_CGT_BRIDGE.code.length, 0);
+        assertTrue(controller.minters(CGTPredeploys.L2_CGT_BRIDGE));
+        L2CGTBridge bridge = L2CGTBridge(CGTPredeploys.L2_CGT_BRIDGE);
+        assertEq(bridge.l1Bridge(), input.l1CGTBridge);
     }
 }
 
@@ -253,7 +263,10 @@ contract L2Genesis_Run_Test is L2Genesis_TestInit {
             gasPayingTokenName: "",
             gasPayingTokenSymbol: "",
             nativeAssetLiquidityAmount: type(uint248).max,
-            liquidityControllerOwner: address(0x000000000000000000000000000000000000000d)
+            liquidityControllerOwner: address(0x000000000000000000000000000000000000000d),
+
+            // TEA
+            l1CGTBridge: address(0x7278C0d99Ba37cE53d6983CfC52a181EF891581F)
         });
     }
 
