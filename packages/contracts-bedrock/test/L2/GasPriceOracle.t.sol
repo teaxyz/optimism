@@ -40,6 +40,18 @@ contract GasPriceOracle_Test is CommonTest {
     function setUp() public virtual override {
         super.setUp();
         depositor = l1Block.DEPOSITOR_ACCOUNT();
+
+        // TEA. Set price 1 TEA = 1 ETH
+        vm.prank(Ownable(Predeploys.PROXY_ADMIN).owner());
+        gasPriceOracle.setFallbackPrice(1e18);
+
+        vm.prank(Predeploys.L1_BLOCK_ATTRIBUTES);
+        gasPriceOracle.updateGasTokenPriceRatio();
+
+        skip(6 minutes);
+
+        vm.prank(Predeploys.L1_BLOCK_ATTRIBUTES);
+        gasPriceOracle.updateGasTokenPriceRatio();
     }
 }
 
@@ -62,18 +74,6 @@ contract GasPriceOracleBedrock_Test is GasPriceOracle_Test {
             _l1FeeOverhead: l1FeeOverhead,
             _l1FeeScalar: l1FeeScalar
         });
-
-        // TEA. Set price 1 TEA = 1 ETH
-        vm.prank(Ownable(Predeploys.PROXY_ADMIN).owner());
-        gasPriceOracle.setFallbackPrice(1e18);
-
-        vm.prank(Predeploys.L1_BLOCK_ATTRIBUTES);
-        gasPriceOracle.updateGasTokenPriceRatio();
-
-        skip(6 minutes);
-
-        vm.prank(Predeploys.L1_BLOCK_ATTRIBUTES);
-        gasPriceOracle.updateGasTokenPriceRatio();
     }
 
     /// @dev Tests that `l1BaseFee` is set correctly.
