@@ -28,7 +28,7 @@ interface IGasPriceOracle {
 
     function updateGasTokenPriceRatio() external;
     function convertETHToTea(uint256) external view returns (uint256);
-    function teaPerETH() external view returns (uint160);
+    function teaPerETH() external view returns (bool,uint160);
     function getLatestPrice() external view returns (uint96, uint160);
     function getOracleConfig() external view returns (address,uint16,uint80,bool,address);
     function setOracleConfig(uint16,uint80,address) external;
