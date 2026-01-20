@@ -10,13 +10,19 @@ import (
 //go:embed abi/DisputeGameFactory.json
 var disputeGameFactory []byte
 
+//go:embed abi/SuperFaultDisputeGame.json
+var superFaultDisputeGame []byte
+
 //go:embed abi/FaultDisputeGame.json
 var faultDisputeGame []byte
+
+//go:embed abi/OPSuccinctFaultDisputeGame.json
+var zkDisputeGame []byte
 
 //go:embed abi/PreimageOracle.json
 var preimageOracle []byte
 
-//go:embed abi/MIPS.json
+//go:embed abi/MIPS64.json
 var mips []byte
 
 //go:embed abi/DelayedWETH.json
@@ -31,15 +37,26 @@ var crossL2Inbox []byte
 func LoadDisputeGameFactoryABI() *abi.ABI {
 	return loadABI(disputeGameFactory)
 }
+
+func LoadSuperFaultDisputeGameABI() *abi.ABI {
+	return loadABI(superFaultDisputeGame)
+}
+
 func LoadFaultDisputeGameABI() *abi.ABI {
 	return loadABI(faultDisputeGame)
 }
+
 func LoadPreimageOracleABI() *abi.ABI {
 	return loadABI(preimageOracle)
 }
+
 func LoadMIPSABI() *abi.ABI {
 	return loadABI(mips)
 }
+func LoadZKDisputeGameABI() *abi.ABI {
+	return loadABI(zkDisputeGame)
+}
+
 func LoadDelayedWETHABI() *abi.ABI {
 	return loadABI(delayedWETH)
 }

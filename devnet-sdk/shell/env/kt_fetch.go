@@ -1,56 +1,41 @@
 package env
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"net/url"
 	"strings"
 
-	"github.com/ethereum-optimism/optimism/kurtosis-devnet/pkg/deploy"
-	"github.com/ethereum-optimism/optimism/kurtosis-devnet/pkg/kurtosis/sources/artifact"
+	"github.com/ethereum-optimism/optimism/devnet-sdk/descriptors"
+	ktfs "github.com/ethereum-optimism/optimism/devnet-sdk/kt/fs"
 )
 
-// EnclaveFS is an interface that both our mock and the real implementation satisfy
-type EnclaveFS interface {
-	GetArtifact(ctx context.Context, name string) (*artifact.Artifact, error)
-	Close() error
+// DevnetFS is an interface that both our mock and the real implementation satisfy
+type DevnetFS interface {
+	GetDevnetDescriptor(ctx context.Context, opts ...ktfs.DevnetFSDescriptorOption) (*descriptors.DevnetEnvironment, error)
 }
 
-// enclaveFSWrapper wraps the artifact.EnclaveFS to implement our EnclaveFS interface
-type enclaveFSWrapper struct {
-	fs *artifact.EnclaveFS
+type devnetFSFactory func(ctx context.Context, enclave string) (DevnetFS, error)
+
+type kurtosisFetcher struct {
+	devnetFSFactory devnetFSFactory
 }
 
-func (w *enclaveFSWrapper) GetArtifact(ctx context.Context, name string) (*artifact.Artifact, error) {
-	return w.fs.GetArtifact(ctx, name)
-}
-
-func (w *enclaveFSWrapper) Close() error {
-	// The underlying EnclaveFS doesn't have a Close method, but we need it for our interface
-	return nil
-}
-
-// NewEnclaveFSFunc is the type for functions that create new enclave filesystems
-type NewEnclaveFSFunc func(ctx context.Context, enclave string) (EnclaveFS, error)
-
-// NewEnclaveFS is a variable that holds the function to create a new enclave filesystem
-// It can be replaced in tests
-var NewEnclaveFS NewEnclaveFSFunc = func(ctx context.Context, enclave string) (EnclaveFS, error) {
-	fs, err := artifact.NewEnclaveFS(ctx, enclave)
+func newDevnetFS(ctx context.Context, enclave string) (DevnetFS, error) {
+	fs, err := ktfs.NewEnclaveFS(ctx, enclave)
 	if err != nil {
 		return nil, err
 	}
-	return &enclaveFSWrapper{fs: fs}, nil
+	return ktfs.NewDevnetFS(fs), nil
 }
 
 // parseKurtosisURL parses a Kurtosis URL of the form kt://enclave/artifact/file
-// If artifact is omitted, it defaults to "devnet"
+// If artifact is omitted, it defaults to ""
 // If file is omitted, it defaults to "env.json"
-func parseKurtosisURL(u *url.URL) (enclave, artifactName, fileName string) {
+func (f *kurtosisFetcher) parseKurtosisURL(u *url.URL) (enclave, artifactName, fileName string) {
 	enclave = u.Host
-	artifactName = deploy.DevnetEnvArtifactName
-	fileName = deploy.DevnetEnvArtifactPath
+	artifactName = ""
+	fileName = ktfs.DevnetEnvArtifactPath
 
 	// Trim both prefix and suffix slashes before splitting
 	trimmedPath := strings.Trim(u.Path, "/")
@@ -66,25 +51,19 @@ func parseKurtosisURL(u *url.URL) (enclave, artifactName, fileName string) {
 }
 
 // fetchKurtosisData reads data from a Kurtosis artifact
-func fetchKurtosisData(u *url.URL) (string, []byte, error) {
-	enclave, artifactName, fileName := parseKurtosisURL(u)
+func (f *kurtosisFetcher) fetchKurtosisData(u *url.URL) (*descriptors.DevnetEnvironment, error) {
+	enclave, artifactName, fileName := f.parseKurtosisURL(u)
 
-	fs, err := NewEnclaveFS(context.Background(), enclave)
+	devnetFS, err := f.devnetFSFactory(context.Background(), enclave)
 	if err != nil {
-		return "", nil, fmt.Errorf("error creating enclave fs: %w", err)
+		return nil, fmt.Errorf("error creating enclave fs: %w", err)
 	}
 
-	art, err := fs.GetArtifact(context.Background(), artifactName)
+	env, err := devnetFS.GetDevnetDescriptor(context.Background(), ktfs.WithArtifactName(artifactName), ktfs.WithArtifactPath(fileName))
 	if err != nil {
-		return "", nil, fmt.Errorf("error getting artifact: %w", err)
+		return nil, fmt.Errorf("error getting devnet descriptor: %w", err)
 	}
 
-	var buf bytes.Buffer
-	writer := artifact.NewArtifactFileWriter(fileName, &buf)
-
-	if err := art.ExtractFiles(writer); err != nil {
-		return "", nil, fmt.Errorf("error extracting file from artifact: %w", err)
-	}
-
-	return enclave, buf.Bytes(), nil
+	env.Name = enclave
+	return env, nil
 }

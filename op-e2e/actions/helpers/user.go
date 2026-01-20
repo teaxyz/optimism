@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ethereum-optimism/optimism/op-chain-ops/crossdomain"
+	"github.com/ethereum-optimism/optimism/op-core/predeploys"
 	legacybindings "github.com/ethereum-optimism/optimism/op-e2e/bindings"
 	"github.com/ethereum-optimism/optimism/op-e2e/config"
 	e2ehelpers "github.com/ethereum-optimism/optimism/op-e2e/system/helpers"
@@ -31,13 +32,11 @@ import (
 	bindingspreview "github.com/ethereum-optimism/optimism/op-node/bindings/preview"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/derive"
 	"github.com/ethereum-optimism/optimism/op-node/withdrawals"
-	"github.com/ethereum-optimism/optimism/op-service/predeploys"
 )
 
 type L1Bindings struct {
 	// contract bindings
 	OptimismPortal     *bindings.OptimismPortal
-	L2OutputOracle     *bindings.L2OutputOracle
 	OptimismPortal2    *bindingspreview.OptimismPortal2
 	DisputeGameFactory *bindings.DisputeGameFactory
 }
@@ -45,9 +44,6 @@ type L1Bindings struct {
 func NewL1Bindings(t Testing, l1Cl *ethclient.Client, allocType config.AllocType) *L1Bindings {
 	l1Deployments := config.L1Deployments(allocType)
 	optimismPortal, err := bindings.NewOptimismPortal(l1Deployments.OptimismPortalProxy, l1Cl)
-	require.NoError(t, err)
-
-	l2OutputOracle, err := bindings.NewL2OutputOracle(l1Deployments.L2OutputOracleProxy, l1Cl)
 	require.NoError(t, err)
 
 	optimismPortal2, err := bindingspreview.NewOptimismPortal2(l1Deployments.OptimismPortalProxy, l1Cl)
@@ -58,7 +54,6 @@ func NewL1Bindings(t Testing, l1Cl *ethclient.Client, allocType config.AllocType
 
 	return &L1Bindings{
 		OptimismPortal:     optimismPortal,
-		L2OutputOracle:     l2OutputOracle,
 		OptimismPortal2:    optimismPortal2,
 		DisputeGameFactory: disputeGameFactory,
 	}
@@ -166,6 +161,7 @@ func (s *BasicUser[B]) ActResetTxOpts(t Testing) {
 }
 
 func (s *BasicUser[B]) ActRandomTxToAddr(t Testing) {
+	t.Helper()
 	i := s.rng.Intn(len(s.env.AddressCorpora))
 	var to *common.Address
 	if i > 0 { // 0 == nil
@@ -203,7 +199,26 @@ func (s *BasicUser[B]) ActSetTxValue(value *big.Int) Action {
 	}
 }
 
+func (s *BasicUser[B]) ActSetTxGasLimit(limit uint64) Action {
+	return func(t Testing) {
+		s.txOpts.GasLimit = limit
+	}
+}
+
+func (s *BasicUser[B]) ActSetGasTipCap(feeCap *big.Int) Action {
+	return func(t Testing) {
+		s.txOpts.GasTipCap = feeCap
+	}
+}
+
+func (s *BasicUser[B]) ActSetGasFeeCap(feeCap *big.Int) Action {
+	return func(t Testing) {
+		s.txOpts.GasFeeCap = feeCap
+	}
+}
+
 func (s *BasicUser[B]) ActRandomTxData(t Testing) {
+	t.Helper()
 	dataLen := s.rng.Intn(128_000)
 	out := make([]byte, dataLen)
 	_, err := s.rng.Read(out[:])
@@ -212,6 +227,7 @@ func (s *BasicUser[B]) ActRandomTxData(t Testing) {
 }
 
 func (s *BasicUser[B]) PendingNonce(t Testing) uint64 {
+	t.Helper()
 	if s.txOpts.Nonce != nil {
 		return s.txOpts.Nonce.Uint64()
 	}
@@ -229,10 +245,15 @@ func (s *BasicUser[B]) TxValue() *big.Int {
 }
 
 func (s *BasicUser[B]) LastTxReceipt(t Testing) *types.Receipt {
+	t.Helper()
 	require.NotEqual(t, s.lastTxHash, common.Hash{}, "must send tx before getting last receipt")
 	receipt, err := s.env.EthCl.TransactionReceipt(t.Ctx(), s.lastTxHash)
 	require.NoError(t, err)
 	return receipt
+}
+
+func (s *BasicUser[B]) Secret() *ecdsa.PrivateKey {
+	return s.account
 }
 
 func (s *BasicUser[B]) MakeTransaction(t Testing) *types.Transaction {
@@ -259,13 +280,15 @@ func (s *BasicUser[B]) MakeTransaction(t Testing) *types.Transaction {
 
 // ActMakeTx makes a tx with the predetermined contents (see randomization and other actions)
 // and sends it to the tx pool
-func (s *BasicUser[B]) ActMakeTx(t Testing) {
+func (s *BasicUser[B]) ActMakeTx(t Testing) *types.Transaction {
+	t.Helper()
 	tx := s.MakeTransaction(t)
 	err := s.env.EthCl.SendTransaction(t.Ctx(), tx)
 	require.NoError(t, err, "must send tx")
 	s.lastTxHash = tx.Hash()
 	// reset the calldata
 	s.txCallData = []byte{}
+	return tx
 }
 
 func (s *BasicUser[B]) ActCheckReceiptStatusOfLastTx(success bool) func(t Testing) {
@@ -275,6 +298,7 @@ func (s *BasicUser[B]) ActCheckReceiptStatusOfLastTx(success bool) func(t Testin
 }
 
 func (s *BasicUser[B]) CheckReceipt(t Testing, success bool, txHash common.Hash) *types.Receipt {
+	t.Helper()
 	receipt, err := s.env.EthCl.TransactionReceipt(t.Ctx(), txHash)
 	if receipt != nil && err == nil {
 		expected := types.ReceiptStatusFailed
@@ -387,6 +411,7 @@ func (s *CrossLayerUser) ActCheckDepositStatus(l1Success, l2Success bool) Action
 }
 
 func (s *CrossLayerUser) CheckDepositTx(t Testing, l1TxHash common.Hash, index int, l1Success, l2Success bool) {
+	t.Helper()
 	depositReceipt := s.L1.CheckReceipt(t, l1Success, l1TxHash)
 	if depositReceipt == nil {
 		require.False(t, l1Success)
@@ -400,67 +425,34 @@ func (s *CrossLayerUser) CheckDepositTx(t Testing, l1TxHash common.Hash, index i
 	}
 }
 
-func (s *CrossLayerUser) ActStartWithdrawal(t Testing) {
-	targetAddr := common.Address{}
-	if s.L1.txToAddr != nil {
-		targetAddr = *s.L2.txToAddr
-	}
-	tx, err := s.L2.env.Bindings.L2ToL1MessagePasser.InitiateWithdrawal(&s.L2.txOpts, targetAddr, new(big.Int).SetUint64(s.L1.txOpts.GasLimit), s.L1.txCallData)
-	require.NoError(t, err, "create initiate withdraw tx")
-	err = s.L2.env.EthCl.SendTransaction(t.Ctx(), tx)
-	require.NoError(t, err, "must send tx")
-	s.lastL2WithdrawalTxHash = tx.Hash()
-}
-
-// ActCheckStartWithdrawal checks that a previous witdrawal tx was either successful or failed.
-func (s *CrossLayerUser) ActCheckStartWithdrawal(success bool) Action {
-	return func(t Testing) {
-		s.L2.CheckReceipt(t, success, s.lastL2WithdrawalTxHash)
-	}
-}
-
 func (s *CrossLayerUser) Address() common.Address {
 	return s.L1.address
 }
 
-func (s *CrossLayerUser) getLatestWithdrawalParams(t Testing) (*withdrawals.ProvenWithdrawalParameters, error) {
+func (s *CrossLayerUser) GetLastDepositL2Receipt(t Testing) (*types.Receipt, error) {
+	depositL1Receipt := s.L1.CheckReceipt(t, true, s.lastL1DepositTxHash)
+	reconstructedDep, err := derive.UnmarshalDepositLogEvent(depositL1Receipt.Logs[0])
+	require.NoError(t, err, "Could not reconstruct L2 Deposit")
+	l2Tx := types.NewTx(reconstructedDep)
+	return s.L2.CheckReceipt(t, true, l2Tx.Hash()), nil
+}
+
+func (s *CrossLayerUser) getLastWithdrawalParams(t Testing) (*withdrawals.ProvenWithdrawalParameters, error) {
 	receipt := s.L2.CheckReceipt(t, true, s.lastL2WithdrawalTxHash)
 	l2WithdrawalBlock, err := s.L2.env.EthCl.BlockByNumber(t.Ctx(), receipt.BlockNumber)
 	require.NoError(t, err)
 
-	var l2OutputBlockNr *big.Int
-	var l2OutputBlock *types.Block
-	if s.allocType.UsesProofs() {
-		latestGame, err := withdrawals.FindLatestGame(t.Ctx(), &s.L1.env.Bindings.DisputeGameFactory.DisputeGameFactoryCaller, &s.L1.env.Bindings.OptimismPortal2.OptimismPortal2Caller)
-		require.NoError(t, err)
-		l2OutputBlockNr = new(big.Int).SetBytes(latestGame.ExtraData[0:32])
-		l2OutputBlock, err = s.L2.env.EthCl.BlockByNumber(t.Ctx(), l2OutputBlockNr)
-		require.NoError(t, err)
-	} else {
-		l2OutputBlockNr, err = s.L1.env.Bindings.L2OutputOracle.LatestBlockNumber(&bind.CallOpts{})
-		require.NoError(t, err)
-		l2OutputBlock, err = s.L2.env.EthCl.BlockByNumber(t.Ctx(), l2OutputBlockNr)
-		require.NoError(t, err)
-	}
+	latestGame, err := withdrawals.FindLatestGame(t.Ctx(), &s.L1.env.Bindings.DisputeGameFactory.DisputeGameFactoryCaller, &s.L1.env.Bindings.OptimismPortal2.OptimismPortal2Caller)
+	require.NoError(t, err)
+	l2OutputBlockNr := new(big.Int).SetBytes(latestGame.ExtraData[0:32])
+	l2OutputBlock, err := s.L2.env.EthCl.BlockByNumber(t.Ctx(), l2OutputBlockNr)
+	require.NoError(t, err)
 
 	if l2OutputBlock.NumberU64() < l2WithdrawalBlock.NumberU64() {
 		return nil, fmt.Errorf("the latest L2 output is %d and is not past L2 block %d that includes the withdrawal yet, no withdrawal can be proved yet", l2OutputBlock.NumberU64(), l2WithdrawalBlock.NumberU64())
 	}
 
-	if !s.allocType.UsesProofs() {
-		finalizationPeriod, err := s.L1.env.Bindings.L2OutputOracle.FINALIZATIONPERIODSECONDS(&bind.CallOpts{})
-		require.NoError(t, err)
-		l1Head, err := s.L1.env.EthCl.HeaderByNumber(t.Ctx(), nil)
-		require.NoError(t, err)
-
-		if l2OutputBlock.Time()+finalizationPeriod.Uint64() >= l1Head.Time {
-			return nil, fmt.Errorf("L2 output block %d (time %d) is not past finalization period %d from L2 block %d (time %d) at head %d (time %d)", l2OutputBlock.NumberU64(), l2OutputBlock.Time(), finalizationPeriod.Uint64(), l2WithdrawalBlock.NumberU64(), l2WithdrawalBlock.Time(), l1Head.Number.Uint64(), l1Head.Time)
-		}
-	}
-
-	header, err := s.L2.env.EthCl.HeaderByNumber(t.Ctx(), l2OutputBlockNr)
-	require.NoError(t, err)
-	params, err := e2ehelpers.ProveWithdrawalParameters(t.Ctx(), s.L2.env.Bindings.ProofClient, s.L2.env.EthCl, s.L2.env.EthCl, s.lastL2WithdrawalTxHash, header, &s.L1.env.Bindings.L2OutputOracle.L2OutputOracleCaller, &s.L1.env.Bindings.DisputeGameFactory.DisputeGameFactoryCaller, &s.L1.env.Bindings.OptimismPortal2.OptimismPortal2Caller, s.allocType)
+	params, err := e2ehelpers.ProveWithdrawalParameters(t.Ctx(), s.L2.env.Bindings.ProofClient, s.L2.env.EthCl, s.L2.env.EthCl, s.lastL2WithdrawalTxHash, &s.L1.env.Bindings.DisputeGameFactory.DisputeGameFactoryCaller, &s.L1.env.Bindings.OptimismPortal2.OptimismPortal2Caller)
 	require.NoError(t, err)
 
 	return &params, nil
@@ -492,15 +484,9 @@ func (s *CrossLayerUser) getDisputeGame(t Testing, params withdrawals.ProvenWith
 	return proxy, game.DisputeGameProxy, nil
 }
 
-// ActCompleteWithdrawal creates a L1 proveWithdrawal tx for latest withdrawal.
-// The tx hash is remembered as the last L1 tx, to check as L1 actor.
-func (s *CrossLayerUser) ActProveWithdrawal(t Testing) {
-	s.L1.lastTxHash = s.ProveWithdrawal(t, s.lastL2WithdrawalTxHash)
-}
-
 // ProveWithdrawal creates a L1 proveWithdrawal tx for the given L2 withdrawal tx, returning the tx hash.
 func (s *CrossLayerUser) ProveWithdrawal(t Testing, l2TxHash common.Hash) common.Hash {
-	params, err := s.getLatestWithdrawalParams(t)
+	params, err := s.getLastWithdrawalParams(t)
 	if err != nil {
 		t.InvalidAction("cannot prove withdrawal: %v", err)
 		return common.Hash{}
@@ -529,17 +515,10 @@ func (s *CrossLayerUser) ProveWithdrawal(t Testing, l2TxHash common.Hash) common
 	return tx.Hash()
 }
 
-// ActCompleteWithdrawal creates a L1 withdrawal finalization tx for latest withdrawal.
-// The tx hash is remembered as the last L1 tx, to check as L1 actor.
-// The withdrawal functions like CompleteWithdrawal
-func (s *CrossLayerUser) ActCompleteWithdrawal(t Testing) {
-	s.L1.lastTxHash = s.CompleteWithdrawal(t, s.lastL2WithdrawalTxHash)
-}
-
 // CompleteWithdrawal creates a L1 withdrawal finalization tx for the given L2 withdrawal tx, returning the tx hash.
 // It's an invalid action to attempt to complete a withdrawal that has not passed the L1 finalization period yet
 func (s *CrossLayerUser) CompleteWithdrawal(t Testing, l2TxHash common.Hash) common.Hash {
-	params, err := s.getLatestWithdrawalParams(t)
+	params, err := s.getLastWithdrawalParams(t)
 	if err != nil {
 		t.InvalidAction("cannot complete withdrawal: %v", err)
 		return common.Hash{}
@@ -572,7 +551,7 @@ func (s *CrossLayerUser) ActResolveClaim(t Testing) {
 
 // ResolveClaim creates a L1 resolveClaim tx for the given L2 withdrawal tx, returning the tx hash.
 func (s *CrossLayerUser) ResolveClaim(t Testing, l2TxHash common.Hash) common.Hash {
-	params, err := s.getLatestWithdrawalParams(t)
+	params, err := s.getLastWithdrawalParams(t)
 	if err != nil {
 		t.InvalidAction("cannot resolve claim: %v", err)
 		return common.Hash{}
@@ -610,7 +589,7 @@ func (s *CrossLayerUser) ActResolve(t Testing) {
 
 // Resolve creates a L1 resolve tx for the given L2 withdrawal tx, returning the tx hash.
 func (s *CrossLayerUser) Resolve(t Testing, l2TxHash common.Hash) common.Hash {
-	params, err := s.getLatestWithdrawalParams(t)
+	params, err := s.getLastWithdrawalParams(t)
 	if err != nil {
 		t.InvalidAction("cannot resolve game: %v", err)
 		return common.Hash{}

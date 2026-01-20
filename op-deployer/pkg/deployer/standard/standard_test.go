@@ -6,17 +6,24 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ethereum-optimism/superchain-registry/validation"
+
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestDefaultHardforkScheduleForTag(t *testing.T) {
-	sched := DefaultHardforkScheduleForTag(ContractsV160Tag)
-	require.Nil(t, sched.HoloceneTime(0))
-
-	sched = DefaultHardforkScheduleForTag(ContractsV180Tag)
+func TestDefaultHardforkSchedule(t *testing.T) {
+	sched := DefaultHardforkSchedule()
+	require.NotNil(t, sched.RegolithTime(0))
+	require.NotNil(t, sched.CanyonTime(0))
+	require.NotNil(t, sched.DeltaTime(0))
+	require.NotNil(t, sched.EcotoneTime(0))
+	require.NotNil(t, sched.FjordTime(0))
+	require.NotNil(t, sched.GraniteTime(0))
 	require.NotNil(t, sched.HoloceneTime(0))
+	require.NotNil(t, sched.IsthmusTime(0))
+	require.NotNil(t, sched.JovianTime(0))
 }
 
 func TestStandardAddresses(t *testing.T) {
@@ -59,6 +66,80 @@ func TestStandardAddresses(t *testing.T) {
 			sepoliaAddr, err := test.f(11155111)
 			require.NoError(t, err)
 			require.Equal(t, test.sepoliaAddr, sepoliaAddr)
+		})
+	}
+}
+
+func TestL2ProxyAdminOwner(t *testing.T) {
+	tests := []struct {
+		chainID uint64
+		expAddr validation.Address
+	}{
+		{
+			1,
+			validation.StandardConfigRolesMainnet.L2ProxyAdminOwner,
+		},
+		{
+			11155111,
+			validation.StandardConfigRolesSepolia.L2ProxyAdminOwner,
+		},
+	}
+	for _, test := range tests {
+		addr, err := L2ProxyAdminOwner(test.chainID)
+		require.NoError(t, err)
+		require.Equal(t, common.Address(test.expAddr), addr)
+	}
+}
+
+func TestManagerImplementationAddrFor(t *testing.T) {
+	testCases := []struct {
+		name          string
+		chainID       uint64
+		tag           string
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name:        "proxied opcm",
+			chainID:     1,
+			tag:         "op-contracts/v1.8.0",
+			expectError: false,
+		},
+		{
+			name:        "non-proxied opcm",
+			chainID:     1,
+			tag:         "op-contracts/v2.0.0-rc.1",
+			expectError: false,
+		},
+		{
+			name:          "unsupported chainID",
+			chainID:       999999,
+			tag:           "op-contracts/v1.8.0",
+			expectError:   true,
+			errorContains: "unsupported chainID",
+		},
+		{
+			name:          "unsupported tag",
+			chainID:       1,
+			tag:           "op-contracts/v999.999.999",
+			expectError:   true,
+			errorContains: "unsupported tag",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			addr, err := OPCMImplAddressFor(tc.chainID, tc.tag)
+
+			if tc.expectError {
+				require.Error(t, err)
+				if tc.errorContains != "" {
+					require.Contains(t, err.Error(), tc.errorContains)
+				}
+			} else {
+				require.NoError(t, err)
+				require.NotEqual(t, common.Address{}, addr, "address should not be empty")
+			}
 		})
 	}
 }

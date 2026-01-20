@@ -30,6 +30,8 @@ var (
 	cannonBin               = "./bin/cannon"
 	cannonServer            = "./bin/op-program"
 	cannonPreState          = "./pre.json"
+	cannonKonaServer        = "./bin/kona-host"
+	cannonKonaPreState      = "./cannon-kona-pre.json"
 	datadir                 = "./test_data"
 	rollupRpc               = "http://example.com:8555"
 	asteriscBin             = "./bin/asterisc"
@@ -50,6 +52,14 @@ func TestLogLevel(t *testing.T) {
 			require.NotNil(t, logger)
 		})
 	}
+}
+
+func TestL2Experimental(t *testing.T) {
+	t.Run("Valid", func(t *testing.T) {
+		url := "http://example.com:8888"
+		cfg := configForArgs(t, addRequiredArgs(types.TraceTypeAlphabet, "--l2-experimental-eth-rpc="+url))
+		require.Equal(t, url, cfg.Cannon.L2Experimental)
+	})
 }
 
 func TestDefaultCLIOptionsMatchDefaultConfig(t *testing.T) {
@@ -92,10 +102,19 @@ func TestOpSupervisor(t *testing.T) {
 	t.Run("RequiredForSuperCannon", func(t *testing.T) {
 		verifyArgsInvalid(t, "flag supervisor-rpc is required", addRequiredArgsExcept(types.TraceTypeSuperCannon, "--supervisor-rpc"))
 	})
+	t.Run("RequiredForSuperPermissioned", func(t *testing.T) {
+		verifyArgsInvalid(t, "flag supervisor-rpc is required", addRequiredArgsExcept(types.TraceTypeSuperPermissioned, "--supervisor-rpc"))
+	})
+	t.Run("RequiredForSuperCannonKona", func(t *testing.T) {
+		verifyArgsInvalid(t, "flag supervisor-rpc is required", addRequiredArgsExcept(types.TraceTypeSuperCannonKona, "--supervisor-rpc"))
+	})
+	t.Run("RequiredForSuperAsteriscKona", func(t *testing.T) {
+		verifyArgsInvalid(t, "flag supervisor-rpc is required", addRequiredArgsExcept(types.TraceTypeSuperAsteriscKona, "--supervisor-rpc"))
+	})
 
 	for _, traceType := range types.TraceTypes {
 		traceType := traceType
-		if traceType == types.TraceTypeSuperCannon {
+		if traceType == types.TraceTypeSuperCannon || traceType == types.TraceTypeSuperPermissioned || traceType == types.TraceTypeSuperAsteriscKona || traceType == types.TraceTypeSuperCannonKona {
 			continue
 		}
 
@@ -104,16 +123,34 @@ func TestOpSupervisor(t *testing.T) {
 		})
 	}
 
-	t.Run("Valid", func(t *testing.T) {
+	t.Run("Valid-SuperCannon", func(t *testing.T) {
 		url := "http://localhost/supervisor"
 		cfg := configForArgs(t, addRequiredArgsExcept(types.TraceTypeSuperCannon, "--supervisor-rpc", "--supervisor-rpc", url))
+		require.Equal(t, url, cfg.SupervisorRPC)
+	})
+
+	t.Run("Valid-SuperPermissioned", func(t *testing.T) {
+		url := "http://localhost/supervisor"
+		cfg := configForArgs(t, addRequiredArgsExcept(types.TraceTypeSuperPermissioned, "--supervisor-rpc", "--supervisor-rpc", url))
+		require.Equal(t, url, cfg.SupervisorRPC)
+	})
+
+	t.Run("Valid-SuperCannonKona", func(t *testing.T) {
+		url := "http://localhost/supervisor"
+		cfg := configForArgs(t, addRequiredArgsExcept(types.TraceTypeSuperCannonKona, "--supervisor-rpc", "--supervisor-rpc", url))
+		require.Equal(t, url, cfg.SupervisorRPC)
+	})
+
+	t.Run("Valid-SuperAsteriscKona", func(t *testing.T) {
+		url := "http://localhost/supervisor"
+		cfg := configForArgs(t, addRequiredArgsExcept(types.TraceTypeSuperAsteriscKona, "--supervisor-rpc", "--supervisor-rpc", url))
 		require.Equal(t, url, cfg.SupervisorRPC)
 	})
 }
 
 func TestTraceType(t *testing.T) {
 	t.Run("Default", func(t *testing.T) {
-		expectedDefault := []types.TraceType{types.TraceTypeCannon, types.TraceTypeAsteriscKona}
+		expectedDefault := []types.TraceType{types.TraceTypeCannon, types.TraceTypeAsteriscKona, types.TraceTypeCannonKona}
 		cfg := configForArgs(t, addRequiredArgsForMultipleTracesExcept(expectedDefault, "--trace-type"))
 		require.Equal(t, expectedDefault, cfg.TraceTypes)
 	})
@@ -173,8 +210,8 @@ func TestGameFactoryAddress(t *testing.T) {
 		verifyArgsInvalid(t, "flag game-factory-address or network is required", addRequiredArgsExcept(types.TraceTypeAlphabet, "--game-factory-address"))
 	})
 
-	t.Run("RequiredWhenMultipleNetworksSupplied", func(t *testing.T) {
-		verifyArgsInvalid(t, "flag game-factory-address required when multiple networks specified", addRequiredArgsExcept(types.TraceTypeAlphabet, "--game-factory-address", "--network", "op-sepolia,op-mainnet"))
+	t.Run("RequiredWhenMultipleNetworksSuppliedWithDifferentFactories", func(t *testing.T) {
+		verifyArgsInvalid(t, "specified networks use different dispute game factories, flag game-factory-address required", addRequiredArgsExcept(types.TraceTypeAlphabet, "--game-factory-address", "--network", "op-sepolia,op-mainnet"))
 	})
 
 	t.Run("Valid", func(t *testing.T) {
@@ -299,6 +336,25 @@ func TestPollInterval(t *testing.T) {
 			t,
 			"invalid value \"abc\" for flag -http-poll-interval",
 			addRequiredArgs(types.TraceTypeAlphabet, "--http-poll-interval", "abc"))
+	})
+}
+
+func TestMinUpdateInterval(t *testing.T) {
+	t.Run("DefaultsToZero", func(t *testing.T) {
+		cfg := configForArgs(t, addRequiredArgs(types.TraceTypeCannon))
+		require.Equal(t, time.Duration(0), cfg.MinUpdateInterval)
+	})
+
+	t.Run("Valid", func(t *testing.T) {
+		cfg := configForArgs(t, addRequiredArgs(types.TraceTypeAlphabet, "--min-update-interval", "10m"))
+		require.Equal(t, 10*time.Minute, cfg.MinUpdateInterval)
+	})
+
+	t.Run("Invalid", func(t *testing.T) {
+		verifyArgsInvalid(
+			t,
+			"invalid value \"abc\" for flag -min-update-interval",
+			addRequiredArgs(types.TraceTypeAlphabet, "--min-update-interval", "abc"))
 	})
 }
 
@@ -456,6 +512,48 @@ func TestAsteriscKonaRequiredArgs(t *testing.T) {
 	})
 }
 
+// validateCustomNetworkFlagsProhibitedWithNetworkFlag ensures custom network flags are not used simultaneously with the network flag.
+// It validates disallowed flag combinations for a given trace type and trace type prefix configuration.
+func validateCustomNetworkFlagsProhibitedWithNetworkFlag(t *testing.T, traceType types.TraceType, traceTypeForFlagPrefix types.TraceType, customNetworkFlag string) {
+	expectedError := fmt.Sprintf("flag network can not be used with rollup-config/%v-rollup-config, l2-genesis/%v-l2-genesis, l1-genesis/%v-l1-genesis or %v", traceTypeForFlagPrefix, traceTypeForFlagPrefix, traceTypeForFlagPrefix, customNetworkFlag)
+
+	// Test the custom l2 flag
+	t.Run(fmt.Sprintf("TestMustNotSpecifyNetworkAndCustomL2Flag-%v", traceType), func(t *testing.T) {
+		verifyArgsInvalid(
+			t,
+			expectedError,
+			addRequiredArgs(traceType, fmt.Sprintf("--%v=true", customNetworkFlag)))
+	})
+
+	// Now test flags with trace-specific permutations
+	customNetworkFlags := map[string]string{
+		"RollupConfig": "rollup-config",
+		"L2Genesis":    "l2-genesis",
+		"L1Genesis":    "l1-genesis",
+	}
+	for testName, flag := range customNetworkFlags {
+		for _, withTraceSpecificPrefix := range []bool{true, false} {
+			var postFix string
+			if withTraceSpecificPrefix {
+				postFix = "-withTraceSpecificPrefix"
+			}
+
+			t.Run(fmt.Sprintf("TestMustNotSpecifyNetworkAnd%v-%v%v", testName, traceType, postFix), func(t *testing.T) {
+				var prefix string
+				if withTraceSpecificPrefix {
+					prefix = fmt.Sprintf("%v-", traceTypeForFlagPrefix)
+				}
+				flagName := fmt.Sprintf("%v%v", prefix, flag)
+
+				verifyArgsInvalid(
+					t,
+					expectedError,
+					addRequiredArgs(traceType, fmt.Sprintf("--%v=somevalue.json", flagName)))
+			})
+		}
+	}
+}
+
 func TestAsteriscBaseRequiredArgs(t *testing.T) {
 	for _, traceType := range []types.TraceType{types.TraceTypeAsterisc, types.TraceTypeAsteriscKona} {
 		traceType := traceType
@@ -534,12 +632,7 @@ func TestAsteriscBaseRequiredArgs(t *testing.T) {
 				addRequiredArgsExcept(traceType, "--network", "--l2-genesis=gensis.json"))
 		})
 
-		t.Run(fmt.Sprintf("TestMustNotSpecifyNetworkAndRollup-%v", traceType), func(t *testing.T) {
-			verifyArgsInvalid(
-				t,
-				"flag network can not be used with rollup-config and l2-genesis",
-				addRequiredArgs(traceType, "--rollup-config=rollup.json"))
-		})
+		validateCustomNetworkFlagsProhibitedWithNetworkFlag(t, traceType, types.TraceTypeAsteriscKona, "asterisc-kona-l2-custom")
 
 		t.Run(fmt.Sprintf("TestNetwork-%v", traceType), func(t *testing.T) {
 			t.Run("NotRequiredForAlphabetTrace", func(t *testing.T) {
@@ -603,8 +696,332 @@ func TestAlphabetRequiredArgs(t *testing.T) {
 	})
 }
 
+func TestCannonCustomConfigArgs(t *testing.T) {
+	for _, traceType := range []types.TraceType{types.TraceTypeCannon, types.TraceTypePermissioned} {
+		traceType := traceType
+
+		t.Run(fmt.Sprintf("TestRequireEitherCannonNetworkOrRollupAndGenesis-%v", traceType), func(t *testing.T) {
+			verifyArgsInvalid(
+				t,
+				"flag network or rollup-config/cannon-rollup-config and l2-genesis/cannon-l2-genesis is required",
+				addRequiredArgsExcept(traceType, "--network"))
+			verifyArgsInvalid(
+				t,
+				"flag network or rollup-config/cannon-rollup-config and l2-genesis/cannon-l2-genesis is required",
+				addRequiredArgsExcept(traceType, "--network", "--cannon-rollup-config=rollup.json"))
+			verifyArgsInvalid(
+				t,
+				"flag network or rollup-config/cannon-rollup-config and l2-genesis/cannon-l2-genesis is required",
+				addRequiredArgsExcept(traceType, "--network", "--cannon-l2-genesis=gensis.json"))
+		})
+
+		validateCustomNetworkFlagsProhibitedWithNetworkFlag(t, traceType, types.TraceTypeCannon, "cannon-l2-custom")
+
+		t.Run(fmt.Sprintf("TestNetwork-%v", traceType), func(t *testing.T) {
+			t.Run("NotRequiredWhenRollupAndGenesIsSpecified", func(t *testing.T) {
+				configForArgs(t, addRequiredArgsExcept(traceType, "--network",
+					"--cannon-rollup-config=rollup.json", "--cannon-l2-genesis=genesis.json"))
+			})
+
+			t.Run("Valid", func(t *testing.T) {
+				cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network", "--network", testNetwork))
+				require.Equal(t, []string{testNetwork}, cfg.Cannon.Networks)
+			})
+		})
+
+		t.Run(fmt.Sprintf("TestSetCannonL2ChainId-%v", traceType), func(t *testing.T) {
+			cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network",
+				"--cannon-rollup-config=rollup.json",
+				"--cannon-l2-genesis=genesis.json",
+				"--cannon-l2-custom"))
+			require.True(t, cfg.Cannon.L2Custom)
+		})
+
+		t.Run(fmt.Sprintf("TestCannonRollupConfig-%v", traceType), func(t *testing.T) {
+			t.Run("NotRequiredForAlphabetTrace", func(t *testing.T) {
+				configForArgs(t, addRequiredArgsExcept(types.TraceTypeAlphabet, "--cannon-rollup-config"))
+			})
+
+			t.Run("Valid", func(t *testing.T) {
+				cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network", "--cannon-rollup-config=rollup.json", "--cannon-l2-genesis=genesis.json"))
+				require.Equal(t, []string{"rollup.json"}, cfg.Cannon.RollupConfigPaths)
+			})
+		})
+
+		t.Run(fmt.Sprintf("TestCannonL2Genesis-%v", traceType), func(t *testing.T) {
+			t.Run("NotRequiredForAlphabetTrace", func(t *testing.T) {
+				configForArgs(t, addRequiredArgsExcept(types.TraceTypeAlphabet, "--cannon-l2-genesis"))
+			})
+
+			t.Run("Valid", func(t *testing.T) {
+				cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network", "--cannon-rollup-config=rollup.json", "--cannon-l2-genesis=genesis.json"))
+				require.Equal(t, []string{"genesis.json"}, cfg.Cannon.L2GenesisPaths)
+			})
+		})
+	}
+}
+
+func TestSuperCannonCustomConfigArgs(t *testing.T) {
+	for _, traceType := range []types.TraceType{types.TraceTypeSuperCannon, types.TraceTypeSuperPermissioned} {
+		traceType := traceType
+
+		t.Run(fmt.Sprintf("TestRequireEitherCannonNetworkOrRollupAndGenesisAndDepset-%v", traceType), func(t *testing.T) {
+			expectedErrorMessage := "flag network or rollup-config/cannon-rollup-config, l2-genesis/cannon-l2-genesis and depset-config/cannon-depset-config is required"
+			// Missing all
+			verifyArgsInvalid(
+				t,
+				expectedErrorMessage,
+				addRequiredArgsExcept(traceType, "--network"))
+			// Missing l2-genesis
+			verifyArgsInvalid(
+				t,
+				expectedErrorMessage,
+				addRequiredArgsExcept(traceType, "--network", "--cannon-rollup-config=rollup.json", "--cannon-depset-config=depset.json"))
+			// Missing rollup-config
+			verifyArgsInvalid(
+				t,
+				expectedErrorMessage,
+				addRequiredArgsExcept(traceType, "--network", "--cannon-l2-genesis=gensis.json", "--cannon-depset-config=depset.json"))
+			// Missing depset-config
+			verifyArgsInvalid(
+				t,
+				expectedErrorMessage,
+				addRequiredArgsExcept(traceType, "--network", "--cannon-rollup-config=rollup.json", "--cannon-l2-genesis=gensis.json"))
+		})
+
+		validateCustomNetworkFlagsProhibitedWithNetworkFlag(t, traceType, types.TraceTypeCannon, "cannon-l2-custom")
+
+		t.Run(fmt.Sprintf("TestNetwork-%v", traceType), func(t *testing.T) {
+			t.Run("NotRequiredWhenRollupGenesisAndDepsetIsSpecified", func(t *testing.T) {
+				configForArgs(t, addRequiredArgsExcept(traceType, "--network",
+					"--cannon-rollup-config=rollup.json", "--cannon-l2-genesis=genesis.json", "--cannon-depset-config=depset.json"))
+			})
+
+			t.Run("Valid", func(t *testing.T) {
+				cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network", "--network", testNetwork))
+				require.Equal(t, []string{testNetwork}, cfg.Cannon.Networks)
+			})
+		})
+
+		t.Run(fmt.Sprintf("TestSetCannonL2ChainId-%v", traceType), func(t *testing.T) {
+			cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network",
+				"--cannon-rollup-config=rollup.json",
+				"--cannon-l2-genesis=genesis.json",
+				"--cannon-depset-config=depset.json",
+				"--cannon-l2-custom"))
+			require.True(t, cfg.Cannon.L2Custom)
+		})
+
+		t.Run(fmt.Sprintf("TestCannonRollupConfig-%v", traceType), func(t *testing.T) {
+			t.Run("NotRequiredForAlphabetTrace", func(t *testing.T) {
+				configForArgs(t, addRequiredArgsExcept(types.TraceTypeAlphabet, "--cannon-rollup-config"))
+			})
+
+			t.Run("Valid", func(t *testing.T) {
+				cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network",
+					"--cannon-rollup-config=rollup.json", "--cannon-l2-genesis=genesis.json", "--cannon-depset-config=depset.json"))
+				require.Equal(t, []string{"rollup.json"}, cfg.Cannon.RollupConfigPaths)
+			})
+		})
+
+		t.Run(fmt.Sprintf("TestCannonL2Genesis-%v", traceType), func(t *testing.T) {
+			t.Run("NotRequiredForAlphabetTrace", func(t *testing.T) {
+				configForArgs(t, addRequiredArgsExcept(types.TraceTypeAlphabet, "--cannon-l2-genesis"))
+			})
+
+			t.Run("Valid", func(t *testing.T) {
+				cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network", "--cannon-rollup-config=rollup.json", "--cannon-l2-genesis=genesis.json", "--cannon-depset-config=depset.json"))
+				require.Equal(t, []string{"genesis.json"}, cfg.Cannon.L2GenesisPaths)
+			})
+		})
+
+		t.Run(fmt.Sprintf("TestCannonDepsetConfig-%v", traceType), func(t *testing.T) {
+			t.Run("NotRequiredForAlphabetTrace", func(t *testing.T) {
+				configForArgs(t, addRequiredArgsExcept(types.TraceTypeAlphabet, "--cannon-depset-config"))
+			})
+
+			t.Run("Valid", func(t *testing.T) {
+				cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network", "--cannon-rollup-config=rollup.json", "--cannon-l2-genesis=genesis.json", "--cannon-depset-config=depset.json"))
+				require.Equal(t, "depset.json", cfg.Cannon.DepsetConfigPath)
+			})
+		})
+	}
+}
+
+func TestSuperCannonKonaCustomConfigArgs(t *testing.T) {
+	traceType := types.TraceTypeSuperCannonKona
+
+	t.Run(fmt.Sprintf("TestRequireEitherCannonKonaNetworkOrRollupAndGenesisAndDepset-%v", traceType), func(t *testing.T) {
+		expectedErrorMessage := "flag network or rollup-config/cannon-kona-rollup-config, l2-genesis/cannon-kona-l2-genesis and depset-config/cannon-kona-depset-config is required"
+		// Missing all
+		verifyArgsInvalid(
+			t,
+			expectedErrorMessage,
+			addRequiredArgsExcept(traceType, "--network"))
+		// Missing l2-genesis
+		verifyArgsInvalid(
+			t,
+			expectedErrorMessage,
+			addRequiredArgsExcept(traceType, "--network", "--cannon-kona-rollup-config=rollup.json", "--cannon-kona-depset-config=depset.json"))
+		// Missing rollup-config
+		verifyArgsInvalid(
+			t,
+			expectedErrorMessage,
+			addRequiredArgsExcept(traceType, "--network", "--cannon-kona-l2-genesis=gensis.json", "--cannon-kona-depset-config=depset.json"))
+		// Missing depset-config
+		verifyArgsInvalid(
+			t,
+			expectedErrorMessage,
+			addRequiredArgsExcept(traceType, "--network", "--cannon-kona-rollup-config=rollup.json", "--cannon-kona-l2-genesis=gensis.json"))
+	})
+
+	validateCustomNetworkFlagsProhibitedWithNetworkFlag(t, traceType, types.TraceTypeCannonKona, "cannon-kona-l2-custom")
+
+	t.Run(fmt.Sprintf("TestNetwork-%v", traceType), func(t *testing.T) {
+		t.Run("NotRequiredWhenRollupGenesisAndDepsetIsSpecified", func(t *testing.T) {
+			configForArgs(t, addRequiredArgsExcept(traceType, "--network",
+				"--cannon-kona-rollup-config=rollup.json", "--cannon-kona-l2-genesis=genesis.json", "--cannon-kona-depset-config=depset.json"))
+		})
+
+		t.Run("Valid", func(t *testing.T) {
+			cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network", "--network", testNetwork))
+			require.Equal(t, []string{testNetwork}, cfg.CannonKona.Networks)
+		})
+	})
+
+	t.Run(fmt.Sprintf("TestSetCannonKonaL2ChainId-%v", traceType), func(t *testing.T) {
+		cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network",
+			"--cannon-kona-rollup-config=rollup.json",
+			"--cannon-kona-l2-genesis=genesis.json",
+			"--cannon-kona-depset-config=depset.json",
+			"--cannon-kona-l2-custom"))
+		require.True(t, cfg.CannonKona.L2Custom)
+	})
+
+	t.Run(fmt.Sprintf("TestCannonKonaRollupConfig-%v", traceType), func(t *testing.T) {
+		t.Run("NotRequiredForAlphabetTrace", func(t *testing.T) {
+			configForArgs(t, addRequiredArgsExcept(types.TraceTypeAlphabet, "--cannon-kona-rollup-config"))
+		})
+
+		t.Run("Valid", func(t *testing.T) {
+			cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network",
+				"--cannon-kona-rollup-config=rollup.json", "--cannon-kona-l2-genesis=genesis.json", "--cannon-kona-depset-config=depset.json"))
+			require.Equal(t, []string{"rollup.json"}, cfg.CannonKona.RollupConfigPaths)
+		})
+	})
+
+	t.Run(fmt.Sprintf("TestCannonKonaL2Genesis-%v", traceType), func(t *testing.T) {
+		t.Run("NotRequiredForAlphabetTrace", func(t *testing.T) {
+			configForArgs(t, addRequiredArgsExcept(types.TraceTypeAlphabet, "--cannon-kona-l2-genesis"))
+		})
+
+		t.Run("Valid", func(t *testing.T) {
+			cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network", "--cannon-kona-rollup-config=rollup.json", "--cannon-kona-l2-genesis=genesis.json", "--cannon-kona-depset-config=depset.json"))
+			require.Equal(t, []string{"genesis.json"}, cfg.CannonKona.L2GenesisPaths)
+		})
+	})
+
+	t.Run(fmt.Sprintf("TestCannonKonaDepsetConfig-%v", traceType), func(t *testing.T) {
+		t.Run("NotRequiredForAlphabetTrace", func(t *testing.T) {
+			configForArgs(t, addRequiredArgsExcept(types.TraceTypeAlphabet, "--cannon-kona-depset-config"))
+		})
+
+		t.Run("Valid", func(t *testing.T) {
+			cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network", "--cannon-kona-rollup-config=rollup.json", "--cannon-kona-l2-genesis=genesis.json", "--cannon-kona-depset-config=depset.json"))
+			require.Equal(t, "depset.json", cfg.CannonKona.DepsetConfigPath)
+		})
+	})
+}
+
+func TestSuperAsteriscKonaCustomConfigArgs(t *testing.T) {
+	for _, traceType := range []types.TraceType{types.TraceTypeSuperAsteriscKona} {
+		traceType := traceType
+
+		t.Run(fmt.Sprintf("TestRequireEitherAsteriscKonaNetworkOrRollupAndGenesisAndDepset-%v", traceType), func(t *testing.T) {
+			expectedErrorMessage := "flag network or rollup-config/asterisc-kona-rollup-config, l2-genesis/asterisc-kona-l2-genesis and depset-config/asterisc-kona-depset-config is required"
+			// Missing all
+			verifyArgsInvalid(
+				t,
+				expectedErrorMessage,
+				addRequiredArgsExcept(traceType, "--network"))
+			// Missing l2-genesis
+			verifyArgsInvalid(
+				t,
+				expectedErrorMessage,
+				addRequiredArgsExcept(traceType, "--network", "--asterisc-kona-rollup-config=rollup.json", "--asterisc-kona-depset-config=depset.json"))
+			// Missing rollup-config
+			verifyArgsInvalid(
+				t,
+				expectedErrorMessage,
+				addRequiredArgsExcept(traceType, "--network", "--asterisc-kona-l2-genesis=gensis.json", "--asterisc-kona-depset-config=depset.json"))
+			// Missing depset-config
+			verifyArgsInvalid(
+				t,
+				expectedErrorMessage,
+				addRequiredArgsExcept(traceType, "--network", "--asterisc-kona-rollup-config=rollup.json", "--asterisc-kona-l2-genesis=gensis.json"))
+		})
+
+		validateCustomNetworkFlagsProhibitedWithNetworkFlag(t, traceType, types.TraceTypeAsteriscKona, "asterisc-kona-l2-custom")
+
+		t.Run(fmt.Sprintf("TestNetwork-%v", traceType), func(t *testing.T) {
+			t.Run("NotRequiredWhenRollupGenesisAndDepsetIsSpecified", func(t *testing.T) {
+				configForArgs(t, addRequiredArgsExcept(traceType, "--network",
+					"--asterisc-kona-rollup-config=rollup.json", "--asterisc-kona-l2-genesis=genesis.json", "--asterisc-kona-depset-config=depset.json"))
+			})
+
+			t.Run("Valid", func(t *testing.T) {
+				cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network", "--network", testNetwork))
+				require.Equal(t, []string{testNetwork}, cfg.AsteriscKona.Networks)
+			})
+		})
+
+		t.Run(fmt.Sprintf("TestSetAsteriscL2ChainId-%v", traceType), func(t *testing.T) {
+			cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network",
+				"--asterisc-kona-rollup-config=rollup.json",
+				"--asterisc-kona-l2-genesis=genesis.json",
+				"--asterisc-kona-depset-config=depset.json",
+				"--asterisc-kona-l2-custom"))
+			require.True(t, cfg.AsteriscKona.L2Custom)
+		})
+
+		t.Run(fmt.Sprintf("TestAsteriscRollupConfig-%v", traceType), func(t *testing.T) {
+			t.Run("NotRequiredForAlphabetTrace", func(t *testing.T) {
+				configForArgs(t, addRequiredArgsExcept(types.TraceTypeAlphabet, "--asterisc-kona-rollup-config"))
+			})
+
+			t.Run("Valid", func(t *testing.T) {
+				cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network",
+					"--asterisc-kona-rollup-config=rollup.json", "--asterisc-kona-l2-genesis=genesis.json", "--asterisc-kona-depset-config=depset.json"))
+				require.Equal(t, []string{"rollup.json"}, cfg.AsteriscKona.RollupConfigPaths)
+			})
+		})
+
+		t.Run(fmt.Sprintf("TestAsteriscL2Genesis-%v", traceType), func(t *testing.T) {
+			t.Run("NotRequiredForAlphabetTrace", func(t *testing.T) {
+				configForArgs(t, addRequiredArgsExcept(types.TraceTypeAlphabet, "--asterisc-kona-l2-genesis"))
+			})
+
+			t.Run("Valid", func(t *testing.T) {
+				cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network", "--asterisc-kona-rollup-config=rollup.json", "--asterisc-kona-l2-genesis=genesis.json", "--asterisc-kona-depset-config=depset.json"))
+				require.Equal(t, []string{"genesis.json"}, cfg.AsteriscKona.L2GenesisPaths)
+			})
+		})
+
+		t.Run(fmt.Sprintf("TestAsteriscDepsetConfig-%v", traceType), func(t *testing.T) {
+			t.Run("NotRequiredForAlphabetTrace", func(t *testing.T) {
+				configForArgs(t, addRequiredArgsExcept(types.TraceTypeAlphabet, "--asterisc-kona-depset-config"))
+			})
+
+			t.Run("Valid", func(t *testing.T) {
+				cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network", "--asterisc-kona-rollup-config=rollup.json", "--asterisc-kona-l2-genesis=genesis.json", "--asterisc-kona-depset-config=depset.json"))
+				require.Equal(t, "depset.json", cfg.AsteriscKona.DepsetConfigPath)
+			})
+		})
+	}
+}
+
 func TestCannonRequiredArgs(t *testing.T) {
-	for _, traceType := range []types.TraceType{types.TraceTypeCannon, types.TraceTypePermissioned, types.TraceTypeSuperCannon} {
+	for _, traceType := range []types.TraceType{types.TraceTypeCannon, types.TraceTypePermissioned, types.TraceTypeSuperCannon, types.TraceTypeSuperPermissioned} {
 		traceType := traceType
 		t.Run(fmt.Sprintf("TestCannonBin-%v", traceType), func(t *testing.T) {
 			t.Run("NotRequiredForAlphabetTrace", func(t *testing.T) {
@@ -739,84 +1156,35 @@ func TestCannonRequiredArgs(t *testing.T) {
 					addRequiredArgs(traceType, "--cannon-info-freq=abc"))
 			})
 		})
+	}
+}
 
-		t.Run(fmt.Sprintf("TestRequireEitherCannonNetworkOrRollupAndGenesis-%v", traceType), func(t *testing.T) {
-			verifyArgsInvalid(
-				t,
-				"flag network or rollup-config/cannon-rollup-config and l2-genesis/cannon-l2-genesis is required",
-				addRequiredArgsExcept(traceType, "--network"))
-			verifyArgsInvalid(
-				t,
-				"flag network or rollup-config/cannon-rollup-config and l2-genesis/cannon-l2-genesis is required",
-				addRequiredArgsExcept(traceType, "--network", "--cannon-rollup-config=rollup.json"))
-			verifyArgsInvalid(
-				t,
-				"flag network or rollup-config/cannon-rollup-config and l2-genesis/cannon-l2-genesis is required",
-				addRequiredArgsExcept(traceType, "--network", "--cannon-l2-genesis=gensis.json"))
-		})
-
-		t.Run(fmt.Sprintf("TestMustNotSpecifyNetworkAndRollup-%v", traceType), func(t *testing.T) {
-			verifyArgsInvalid(
-				t,
-				"flag network can not be used with cannon-rollup-config, l2-genesis or cannon-l2-custom",
-				addRequiredArgs(traceType, "--cannon-rollup-config=rollup.json"))
-		})
-
-		t.Run(fmt.Sprintf("TestMustNotSpecifyNetworkAndRollup-%v", traceType), func(t *testing.T) {
-			args := requiredArgs(traceType)
-			delete(args, "--network")
-			delete(args, "--game-factory-address")
-			args["--network"] = network
-			args["--cannon-rollup-config"] = "rollup.json"
-			args["--cannon-l2-genesis"] = "gensis.json"
-			args["--cannon-l2-custom"] = "true"
-			verifyArgsInvalid(
-				t,
-				"flag network can not be used with cannon-rollup-config, cannon-l2-genesis or cannon-l2-custom",
-				toArgList(args))
-		})
-
-		t.Run(fmt.Sprintf("TestNetwork-%v", traceType), func(t *testing.T) {
-			t.Run("NotRequiredWhenRollupAndGenesIsSpecified", func(t *testing.T) {
-				configForArgs(t, addRequiredArgsExcept(traceType, "--network",
-					"--cannon-rollup-config=rollup.json", "--cannon-l2-genesis=genesis.json"))
+func TestDepsetConfig(t *testing.T) {
+	for _, traceType := range types.TraceTypes {
+		if traceType == types.TraceTypeSuperCannon || traceType == types.TraceTypeSuperPermissioned {
+			t.Run("Required-"+traceType.String(), func(t *testing.T) {
+				verifyArgsInvalid(t,
+					"flag network or rollup-config/cannon-rollup-config, l2-genesis/cannon-l2-genesis and depset-config/cannon-depset-config is required",
+					addRequiredArgsExcept(traceType, "--network", "--rollup-config=rollup.json", "--l2-genesis=genesis.json"))
 			})
-
-			t.Run("Valid", func(t *testing.T) {
-				cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network", "--network", testNetwork))
-				require.Equal(t, []string{testNetwork}, cfg.Cannon.Networks)
+		} else if traceType == types.TraceTypeSuperCannonKona {
+			t.Run("Required-"+traceType.String(), func(t *testing.T) {
+				verifyArgsInvalid(t,
+					"flag network or rollup-config/cannon-kona-rollup-config, l2-genesis/cannon-kona-l2-genesis and depset-config/cannon-kona-depset-config is required",
+					addRequiredArgsExcept(traceType, "--network", "--rollup-config=rollup.json", "--l2-genesis=genesis.json"))
 			})
-		})
-
-		t.Run(fmt.Sprintf("TestSetCannonL2ChainId-%v", traceType), func(t *testing.T) {
-			cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network",
-				"--cannon-rollup-config=rollup.json",
-				"--cannon-l2-genesis=genesis.json",
-				"--cannon-l2-custom"))
-			require.True(t, cfg.Cannon.L2Custom)
-		})
-
-		t.Run(fmt.Sprintf("TestCannonRollupConfig-%v", traceType), func(t *testing.T) {
-			t.Run("NotRequiredForAlphabetTrace", func(t *testing.T) {
-				configForArgs(t, addRequiredArgsExcept(types.TraceTypeAlphabet, "--cannon-rollup-config"))
+		} else if traceType == types.TraceTypeSuperAsteriscKona {
+			t.Run("Required-"+traceType.String(), func(t *testing.T) {
+				verifyArgsInvalid(t,
+					"flag network or rollup-config/asterisc-kona-rollup-config, l2-genesis/asterisc-kona-l2-genesis and depset-config/asterisc-kona-depset-config is required",
+					addRequiredArgsExcept(traceType, "--network", "--rollup-config=rollup.json", "--l2-genesis=genesis.json"))
 			})
-
-			t.Run("Valid", func(t *testing.T) {
-				cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network", "--cannon-rollup-config=rollup.json", "--cannon-l2-genesis=genesis.json"))
-				require.Equal(t, []string{"rollup.json"}, cfg.Cannon.RollupConfigPaths)
+		} else {
+			t.Run("NotRequired-"+traceType.String(), func(t *testing.T) {
+				cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network", "--rollup-config=rollup.json", "--l2-genesis=genesis.json"))
+				require.Equal(t, "", cfg.Cannon.DepsetConfigPath)
 			})
-		})
-
-		t.Run(fmt.Sprintf("TestCannonL2Genesis-%v", traceType), func(t *testing.T) {
-			t.Run("NotRequiredForAlphabetTrace", func(t *testing.T) {
-				configForArgs(t, addRequiredArgsExcept(types.TraceTypeAlphabet, "--cannon-l2-genesis"))
-			})
-
-			t.Run("Valid", func(t *testing.T) {
-				cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--network", "--cannon-rollup-config=rollup.json", "--cannon-l2-genesis=genesis.json"))
-				require.Equal(t, []string{"genesis.json"}, cfg.Cannon.L2GenesisPaths)
-			})
-		})
+		}
 	}
 }
 
@@ -839,7 +1207,7 @@ func TestRollupRpc(t *testing.T) {
 	for _, traceType := range types.TraceTypes {
 		traceType := traceType
 
-		if traceType == types.TraceTypeSuperCannon {
+		if traceType == types.TraceTypeSuperCannon || traceType == types.TraceTypeSuperPermissioned || traceType == types.TraceTypeSuperAsteriscKona || traceType == types.TraceTypeSuperCannonKona {
 			t.Run(fmt.Sprintf("NotRequiredFor-%v", traceType), func(t *testing.T) {
 				configForArgs(t, addRequiredArgsExcept(traceType, "--rollup-rpc"))
 			})
@@ -1020,12 +1388,18 @@ func requiredArgs(traceType types.TraceType) map[string]string {
 	switch traceType {
 	case types.TraceTypeCannon, types.TraceTypePermissioned:
 		addRequiredCannonArgs(args)
+	case types.TraceTypeCannonKona:
+		addRequiredCannonKonaArgs(args)
 	case types.TraceTypeAsterisc:
 		addRequiredAsteriscArgs(args)
 	case types.TraceTypeAsteriscKona:
 		addRequiredAsteriscKonaArgs(args)
-	case types.TraceTypeSuperCannon:
+	case types.TraceTypeSuperCannon, types.TraceTypeSuperPermissioned:
 		addRequiredSuperCannonArgs(args)
+	case types.TraceTypeSuperCannonKona:
+		addRequiredSuperCannonKonaArgs(args)
+	case types.TraceTypeSuperAsteriscKona:
+		addRequiredSuperAsteriscKonaArgs(args)
 	case types.TraceTypeAlphabet, types.TraceTypeFast:
 		addRequiredOutputRootArgs(args)
 	}
@@ -1042,6 +1416,11 @@ func addRequiredCannonArgs(args map[string]string) {
 	addRequiredOutputRootArgs(args)
 }
 
+func addRequiredCannonKonaArgs(args map[string]string) {
+	addRequiredCannonKonaBaseArgs(args)
+	addRequiredOutputRootArgs(args)
+}
+
 func addRequiredOutputRootArgs(args map[string]string) {
 	args["--rollup-rpc"] = rollupRpc
 }
@@ -1051,6 +1430,18 @@ func addRequiredCannonBaseArgs(args map[string]string) {
 	args["--cannon-bin"] = cannonBin
 	args["--cannon-server"] = cannonServer
 	args["--cannon-prestate"] = cannonPreState
+}
+
+func addRequiredCannonKonaBaseArgs(args map[string]string) {
+	args["--network"] = network
+	args["--cannon-bin"] = cannonBin
+	args["--cannon-kona-server"] = cannonKonaServer
+	args["--cannon-kona-prestate"] = cannonKonaPreState
+}
+
+func addRequiredSuperCannonKonaArgs(args map[string]string) {
+	addRequiredCannonKonaBaseArgs(args)
+	args["--supervisor-rpc"] = supervisorRpc
 }
 
 func addRequiredAsteriscArgs(args map[string]string) {
@@ -1067,6 +1458,11 @@ func addRequiredAsteriscKonaArgs(args map[string]string) {
 	args["--asterisc-bin"] = asteriscBin
 	args["--asterisc-kona-server"] = asteriscServer
 	args["--asterisc-kona-prestate"] = asteriscPreState
+}
+
+func addRequiredSuperAsteriscKonaArgs(args map[string]string) {
+	addRequiredAsteriscKonaArgs(args)
+	args["--supervisor-rpc"] = supervisorRpc
 }
 
 func toArgList(req map[string]string) []string {

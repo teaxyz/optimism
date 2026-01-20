@@ -28,21 +28,13 @@ type OnChainPrestateFetcher struct {
 }
 
 func (f *OnChainPrestateFetcher) getPrestate(ctx context.Context, logger log.Logger, prestateBaseUrl *url.URL, prestatePath string, dataDir string, stateConverter vm.StateConverter) (string, error) {
-	gameFactory := contracts.NewDisputeGameFactoryContract(f.m, f.gameFactoryAddress, f.caller)
-	gameImplAddr, err := gameFactory.GetGameImpl(ctx, f.gameType)
+	gameFactory, err := contracts.NewDisputeGameFactoryContract(ctx, f.m, f.gameFactoryAddress, f.caller)
 	if err != nil {
-		return "", fmt.Errorf("failed to load game impl: %w", err)
+		return "", fmt.Errorf("failed to create dispute game factory contract: %w", err)
 	}
-	if gameImplAddr == (common.Address{}) {
-		return "", nil // No prestate is set, will only work if a single prestate is specified
-	}
-	gameImpl, err := contracts.NewFaultDisputeGameContract(ctx, f.m, gameImplAddr, f.caller)
+	prestateHash, err := gameFactory.GetGamePrestate(ctx, f.gameType)
 	if err != nil {
-		return "", fmt.Errorf("failed to create fault dispute game contract bindings for %v: %w", gameImplAddr, err)
-	}
-	prestateHash, err := gameImpl.GetAbsolutePrestateHash(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to get absolute prestate hash for %v: %w", gameImplAddr, err)
+		return "", fmt.Errorf("failed to get absolute prestate hash for game type %v: %w", f.gameType, err)
 	}
 	logger.Info("Using on-chain version of prestate", "prestate", prestateHash)
 	hashFetcher := &HashPrestateFetcher{prestateHash: prestateHash}
@@ -65,6 +57,14 @@ func (f *HashPrestateFetcher) getPrestate(ctx context.Context, _ log.Logger, pre
 		return "", fmt.Errorf("failed to get prestate %v: %w", f.prestateHash, err)
 	}
 	return prestate, nil
+}
+
+type LocalPrestateFetcher struct {
+	path string
+}
+
+func (f *LocalPrestateFetcher) getPrestate(ctx context.Context, logger log.Logger, prestateBaseUrl *url.URL, _ string, dataDir string, stateConverter vm.StateConverter) (string, error) {
+	return f.path, nil
 }
 
 // NamedPrestateFetcher downloads a file with a specified name from the prestate base URL and uses it as the prestate.

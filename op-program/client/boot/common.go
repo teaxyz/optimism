@@ -12,6 +12,8 @@ const (
 	// These local keys are only used for custom chains
 	L2ChainConfigLocalIndex
 	RollupConfigLocalIndex
+	DependencySetLocalIndex
+	L1ChainConfigLocalIndex
 )
 
 type oracleClient interface {

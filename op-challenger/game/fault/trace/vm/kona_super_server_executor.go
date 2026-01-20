@@ -36,7 +36,7 @@ func (s *KonaSuperExecutor) OracleCommand(cfg Config, dataDir string, inputs uti
 		"--l1-head", inputs.L1Head.Hex(),
 		"--agreed-l2-pre-state", common.Bytes2Hex(inputs.AgreedPreState),
 		"--claimed-l2-post-state", inputs.L2Claim.Hex(),
-		"--claimed-l2-timestamp", inputs.L2BlockNumber.Text(10),
+		"--claimed-l2-timestamp", inputs.L2SequenceNumber.Text(10),
 	}
 
 	if s.nativeMode {
@@ -48,6 +48,10 @@ func (s *KonaSuperExecutor) OracleCommand(cfg Config, dataDir string, inputs uti
 
 	if len(cfg.RollupConfigPaths) != 0 {
 		args = append(args, "--rollup-config-paths", strings.Join(cfg.RollupConfigPaths, ","))
+	}
+
+	if cfg.L1GenesisPath != "" {
+		args = append(args, "--l1-config-path", cfg.L1GenesisPath)
 	}
 
 	return args, nil

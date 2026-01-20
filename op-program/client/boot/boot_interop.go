@@ -9,12 +9,14 @@ import (
 	"github.com/ethereum-optimism/optimism/op-node/rollup"
 	"github.com/ethereum-optimism/optimism/op-program/chainconfig"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
+	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/depset"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/params"
 )
 
 var (
-	ErrUnknownChainID = errors.New("unknown chain id")
+	ErrUnknownChainID        = errors.New("unknown chain id")
+	ErrL1ChainConfigMismatch = errors.New("l1 chain config chain ID mismatch")
 )
 
 type BootInfoInterop struct {
@@ -29,14 +31,19 @@ type BootInfoInterop struct {
 type ConfigSource interface {
 	RollupConfig(chainID eth.ChainID) (*rollup.Config, error)
 	ChainConfig(chainID eth.ChainID) (*params.ChainConfig, error)
+	L1ChainConfig(chainID eth.ChainID) (*params.ChainConfig, error)
+	DependencySet(chainID eth.ChainID) (depset.DependencySet, error)
 }
+
 type OracleConfigSource struct {
 	oracle oracleClient
 
 	customConfigsLoaded bool
 
+	l1ChainConfig  *params.ChainConfig
 	l2ChainConfigs map[eth.ChainID]*params.ChainConfig
 	rollupConfigs  map[eth.ChainID]*rollup.Config
+	depset         depset.DependencySet
 }
 
 func (c *OracleConfigSource) RollupConfig(chainID eth.ChainID) (*rollup.Config, error) {
@@ -44,7 +51,7 @@ func (c *OracleConfigSource) RollupConfig(chainID eth.ChainID) (*rollup.Config, 
 		return cfg, nil
 	}
 	cfg, err := chainconfig.RollupConfigByChainID(chainID)
-	if !c.customConfigsLoaded && err != nil {
+	if !c.customConfigsLoaded && errors.Is(err, chainconfig.ErrMissingChainConfig) {
 		c.loadCustomConfigs()
 		if cfg, ok := c.rollupConfigs[chainID]; !ok {
 			return nil, fmt.Errorf("%w: %v", ErrUnknownChainID, chainID)
@@ -62,8 +69,8 @@ func (c *OracleConfigSource) ChainConfig(chainID eth.ChainID) (*params.ChainConf
 	if cfg, ok := c.l2ChainConfigs[chainID]; ok {
 		return cfg, nil
 	}
-	cfg, err := chainconfig.ChainConfigByChainID(chainID)
-	if !c.customConfigsLoaded && err != nil {
+	cfg, err := chainconfig.L2ChainConfigByChainID(chainID)
+	if !c.customConfigsLoaded && errors.Is(err, chainconfig.ErrMissingChainConfig) {
 		c.loadCustomConfigs()
 		if cfg, ok := c.l2ChainConfigs[chainID]; !ok {
 			return nil, fmt.Errorf("%w: %v", ErrUnknownChainID, chainID)
@@ -74,6 +81,39 @@ func (c *OracleConfigSource) ChainConfig(chainID eth.ChainID) (*params.ChainConf
 		return nil, err
 	}
 	c.l2ChainConfigs[chainID] = cfg
+	return cfg, nil
+}
+
+func (c *OracleConfigSource) DependencySet(chainID eth.ChainID) (depset.DependencySet, error) {
+	if c.depset != nil {
+		return c.depset, nil
+	}
+	depSet, err := chainconfig.DependencySetByChainID(chainID)
+	if !c.customConfigsLoaded && errors.Is(err, chainconfig.ErrMissingChainConfig) {
+		c.loadCustomConfigs()
+		if c.depset == nil {
+			return nil, fmt.Errorf("%w: %v", ErrUnknownChainID, chainID)
+		}
+		return c.depset, nil
+	} else if err != nil {
+		return nil, err
+	}
+	c.depset = depSet
+	return c.depset, nil
+}
+
+func (c *OracleConfigSource) L1ChainConfig(chainID eth.ChainID) (*params.ChainConfig, error) {
+	if c.l1ChainConfig != nil {
+		if c.l1ChainConfig.ChainID.Cmp(chainID.ToBig()) != 0 {
+			panic(fmt.Errorf("%w: %v != %v", ErrL1ChainConfigMismatch, c.l1ChainConfig.ChainID, chainID))
+		}
+		return c.l1ChainConfig, nil
+	}
+	cfg, err := chainconfig.L1ChainConfigByChainID(chainID)
+	if err != nil {
+		return nil, err
+	}
+	c.l1ChainConfig = cfg
 	return cfg, nil
 }
 
@@ -95,7 +135,21 @@ func (c *OracleConfigSource) loadCustomConfigs() {
 	for _, config := range chainConfigs {
 		c.l2ChainConfigs[eth.ChainIDFromBig(config.ChainID)] = config
 	}
+
+	var depset depset.StaticConfigDependencySet
+	err = json.Unmarshal(c.oracle.Get(DependencySetLocalIndex), &depset)
+	if err != nil {
+		panic("failed to bootstrap dependency set")
+	}
+	c.depset = &depset
 	c.customConfigsLoaded = true
+
+	var l1ChainConfig *params.ChainConfig
+	err = json.Unmarshal(c.oracle.Get(L1ChainConfigLocalIndex), &l1ChainConfig)
+	if err != nil {
+		panic("failed to bootstrap l1 chain configs: " + fmt.Sprintf("%v", err))
+	}
+	c.l1ChainConfig = l1ChainConfig
 }
 
 func BootstrapInterop(r oracleClient) *BootInfoInterop {

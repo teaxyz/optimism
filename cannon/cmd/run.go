@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -76,7 +77,7 @@ var (
 	}
 	RunStopAtPreimageFlag = &cli.StringFlag{
 		Name:     "stop-at-preimage",
-		Usage:    "stop at the first preimage request matching this key",
+		Usage:    "stop at the first preimage request matching this key. Format: <key-prefix>@<offset>@<step>",
 		Required: false,
 	}
 	RunStopAtPreimageTypeFlag = &cli.StringFlag{
@@ -98,7 +99,7 @@ var (
 	RunInfoAtFlag = &cli.GenericFlag{
 		Name:     "info-at",
 		Usage:    "step pattern to print info at: " + patternHelp,
-		Value:    MustStepMatcherFlag("%100000"),
+		Value:    MustStepMatcherFlag("%1000000000"),
 		Required: false,
 	}
 	RunPProfCPU = &cli.BoolFlag{
@@ -146,16 +147,18 @@ func (rk rawKey) PreimageKey() [32]byte {
 }
 
 type ProcessPreimageOracle struct {
-	pCl      *preimage.OracleClient
-	hCl      *preimage.HintWriter
-	cmd      *exec.Cmd
-	waitErr  chan error
-	cancelIO context.CancelCauseFunc
+	log       log.Logger
+	pCl       *preimage.OracleClient
+	hCl       *preimage.HintWriter
+	cmd       *exec.Cmd
+	waitErr   chan error
+	cancelIO  context.CancelCauseFunc
+	ioClosers ioutil.MultiCloser
 }
 
 const clientPollTimeout = time.Second * 15
 
-func NewProcessPreimageOracle(name string, args []string, stdout log.Logger, stderr log.Logger) (*ProcessPreimageOracle, error) {
+func NewProcessPreimageOracle(logger log.Logger, name string, args []string, stdout log.Logger, stderr log.Logger) (*ProcessPreimageOracle, error) {
 	if name == "" {
 		return &ProcessPreimageOracle{}, nil
 	}
@@ -178,6 +181,8 @@ func NewProcessPreimageOracle(name string, args []string, stdout log.Logger, std
 		pOracleRW.Reader(),
 		pOracleRW.Writer(),
 	}
+	// Discourage rust programs from using color in logs.
+	cmd.Env = append([]string{"NO_COLOR=1"}, os.Environ()...)
 
 	// Note that the client file descriptors are not closed when the pre-image server exits.
 	// So we use the FilePoller to ensure that we don't get stuck in a blocking read/write.
@@ -185,11 +190,14 @@ func NewProcessPreimageOracle(name string, args []string, stdout log.Logger, std
 	preimageClientIO := preimage.NewFilePoller(ctx, pClientRW, clientPollTimeout)
 	hostClientIO := preimage.NewFilePoller(ctx, hClientRW, clientPollTimeout)
 	out := &ProcessPreimageOracle{
+		log:      logger,
 		pCl:      preimage.NewOracleClient(preimageClientIO),
 		hCl:      preimage.NewHintWriter(hostClientIO),
 		cmd:      cmd,
 		waitErr:  make(chan error),
 		cancelIO: cancelIO,
+		// We only close our side of the channels, the client program owns the side we pass through as extra files
+		ioClosers: ioutil.MultiCloser{preimageClientIO, hostClientIO},
 	}
 	return out, nil
 }
@@ -236,14 +244,29 @@ func (p *ProcessPreimageOracle) Close() error {
 	if exited, err := tryWait(1 * time.Second); exited {
 		return err
 	}
-	// Politely ask the process to exit and give it some more time
-	_ = p.cmd.Process.Signal(os.Interrupt)
+
+	// Close the IO streams to the preimage server to encourage it to exit
+	if err := p.ioClosers.Close(); err != nil {
+		p.log.Warn("Failed to close preimage oracle IO streams", "err", err)
+	}
 	if exited, err := tryWait(30 * time.Second); exited {
 		return err
 	}
 
-	// Force the process to exit
-	_ = p.cmd.Process.Signal(os.Kill)
+	// Politely ask the process to exit
+	p.log.Info("Preimage server process did not exit when streams closed, sending interrupt signal")
+	if err := p.cmd.Process.Signal(os.Interrupt); err != nil {
+		p.log.Warn("Failed to send interrupt signal to preimage server process", "err", err)
+	}
+	if exited, err := tryWait(30 * time.Second); exited {
+		return err
+	}
+
+	// Just terminate the process
+	p.log.Warn("Preimage server process would not exit cleanly, terminating")
+	if err := p.cmd.Process.Kill(); err != nil {
+		p.log.Warn("Failed to kill preimage server process", "err", err)
+	}
 	return <-p.waitErr
 }
 
@@ -262,8 +285,20 @@ func (p *ProcessPreimageOracle) wait() {
 type StepFn func(proof bool) (*mipsevm.StepWitness, error)
 
 func Guard(proc *os.ProcessState, fn StepFn) StepFn {
-	return func(proof bool) (*mipsevm.StepWitness, error) {
-		wit, err := fn(proof)
+	return func(proof bool) (wit *mipsevm.StepWitness, err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				const size = 64 << 10
+				buf := make([]byte, size)
+				buf = buf[:runtime.Stack(buf, false)]
+				if proc.Exited() {
+					err = fmt.Errorf("pre-image server exited with code %d, resulting in panic %s", proc.ExitCode(), string(buf))
+				} else {
+					err = fmt.Errorf("pre-image server resulted in panic %s", string(buf))
+				}
+			}
+		}()
+		wit, err = fn(proof)
 		if err != nil {
 			if proc.Exited() {
 				return nil, fmt.Errorf("pre-image server exited with code %d, resulting in err %w", proc.ExitCode(), err)
@@ -294,19 +329,27 @@ func Run(ctx *cli.Context) error {
 	stopAtAnyPreimage := false
 	var stopAtPreimageKeyPrefix []byte
 	stopAtPreimageOffset := arch.Word(0)
+	stopAtPreimageStep := uint64(0)
 	if ctx.IsSet(RunStopAtPreimageFlag.Name) {
 		val := ctx.String(RunStopAtPreimageFlag.Name)
 		parts := strings.Split(val, "@")
-		if len(parts) > 2 {
+		if len(parts) > 3 {
 			return fmt.Errorf("invalid %v: %v", RunStopAtPreimageFlag.Name, val)
 		}
 		stopAtPreimageKeyPrefix = common.FromHex(parts[0])
-		if len(parts) == 2 {
+		if len(parts) >= 2 {
 			x, err := strconv.ParseUint(parts[1], 10, arch.WordSize)
 			if err != nil {
 				return fmt.Errorf("invalid preimage offset: %w", err)
 			}
 			stopAtPreimageOffset = arch.Word(x)
+		}
+		if len(parts) == 3 {
+			x, err := strconv.ParseUint(parts[2], 10, arch.WordSize)
+			if err != nil {
+				return fmt.Errorf("invalid preimage offset: %w", err)
+			}
+			stopAtPreimageStep = x
 		}
 	} else {
 		switch ctx.String(RunStopAtPreimageTypeFlag.Name) {
@@ -344,7 +387,7 @@ func Run(ctx *cli.Context) error {
 
 	poOut := Logger(os.Stdout, log.LevelInfo).With("module", "host")
 	poErr := Logger(os.Stderr, log.LevelInfo).With("module", "host")
-	po, err := NewProcessPreimageOracle(args[0], args[1:], poOut, poErr)
+	po, err := NewProcessPreimageOracle(l, args[0], args[1:], poOut, poErr)
 	if err != nil {
 		return fmt.Errorf("failed to create pre-image oracle process: %w", err)
 	}
@@ -374,7 +417,7 @@ func Run(ctx *cli.Context) error {
 		}
 	}
 
-	state, err := versions.LoadStateFromFile(ctx.Path(RunInputFlag.Name))
+	state, err := versions.LoadStateFromFileWithLargeICache(ctx.Path(RunInputFlag.Name))
 	if err != nil {
 		return fmt.Errorf("failed to load state: %w", err)
 	}
@@ -482,8 +525,8 @@ func Run(ctx *cli.Context) error {
 			}
 			if len(stopAtPreimageKeyPrefix) > 0 &&
 				slices.Equal(lastPreimageKey[:len(stopAtPreimageKeyPrefix)], stopAtPreimageKeyPrefix) {
-				if stopAtPreimageOffset == lastPreimageOffset {
-					l.Info("Stopping at preimage read", "keyPrefix", common.Bytes2Hex(stopAtPreimageKeyPrefix), "offset", lastPreimageOffset)
+				if stopAtPreimageOffset == lastPreimageOffset && step >= stopAtPreimageStep {
+					l.Info("Stopping at preimage read", "keyPrefix", common.Bytes2Hex(stopAtPreimageKeyPrefix), "offset", lastPreimageOffset, "step", step)
 					break
 				}
 			}

@@ -3,6 +3,7 @@ package kvstore
 import (
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 
 	"github.com/ethereum-optimism/optimism/op-program/client/boot"
 	"github.com/ethereum-optimism/optimism/op-program/host/config"
@@ -26,6 +27,8 @@ var (
 	l2ChainIDKey          = boot.L2ChainIDLocalIndex.PreimageKey()
 	l2ChainConfigKey      = boot.L2ChainConfigLocalIndex.PreimageKey()
 	rollupKey             = boot.RollupConfigLocalIndex.PreimageKey()
+	dependencySetKey      = boot.DependencySetLocalIndex.PreimageKey()
+	l1ChainConfigKey      = boot.L1ChainConfigLocalIndex.PreimageKey()
 )
 
 func (s *LocalPreimageSource) Get(key common.Hash) ([]byte, error) {
@@ -56,6 +59,17 @@ func (s *LocalPreimageSource) Get(key common.Hash) ([]byte, error) {
 			return json.Marshal(s.config.Rollups)
 		}
 		return json.Marshal(s.config.Rollups[0])
+	case dependencySetKey:
+		if !s.config.InteropEnabled {
+			return nil, errors.New("host is not configured to serve dependencySet local keys")
+		}
+		return json.Marshal(s.config.DependencySet)
+	case l1ChainConfigKey:
+		// NOTE: We check the L2 chain ID again to determine if we are using custom configs
+		if s.config.L2ChainID != boot.CustomChainIDIndicator {
+			return nil, ErrNotFound
+		}
+		return json.Marshal(s.config.L1ChainConfig)
 	default:
 		return nil, ErrNotFound
 	}

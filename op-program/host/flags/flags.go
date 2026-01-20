@@ -34,6 +34,11 @@ var (
 		Usage:   "Rollup chain parameters",
 		EnvVars: prefixEnvVars("ROLLUP_CONFIG"),
 	}
+	L1ChainConfig = &cli.StringFlag{
+		Name:    "l1.chainconfig",
+		Usage:   "L1 chain config file (path to genesis.json)",
+		EnvVars: prefixEnvVars("L1_CHAINCONFIG"),
+	}
 	Network = &cli.StringSliceFlag{
 		Name:    "network",
 		Usage:   fmt.Sprintf("Predefined network selection. Available networks: %s", strings.Join(chaincfg.AvailableNetworks(), ", ")),
@@ -67,7 +72,7 @@ var (
 	}
 	L2Head = &cli.StringFlag{
 		Name:    "l2.head",
-		Usage:   "Hash of the L2 block at l2.outputroot",
+		Usage:   "Hash of the L2 block at l2.outputroot. Used for non-interop games.",
 		EnvVars: prefixEnvVars("L2_HEAD"),
 	}
 	L2OutputRoot = &cli.StringFlag{
@@ -83,13 +88,14 @@ var (
 	}
 	L2Claim = &cli.StringFlag{
 		Name:    "l2.claim",
-		Usage:   "Claimed L2 output root to validate",
+		Usage:   "Claimed proposal root to validate",
 		EnvVars: prefixEnvVars("L2_CLAIM"),
 	}
 	L2BlockNumber = &cli.Uint64Flag{
 		Name:    "l2.blocknumber",
-		Usage:   "Number of the L2 block that the claim is from",
-		EnvVars: prefixEnvVars("L2_BLOCK_NUM"),
+		Aliases: []string{"l2.sequencenumber"},
+		Usage:   "L2 block number or timestamp that the claim is from",
+		EnvVars: append(prefixEnvVars("L2_BLOCK_NUM"), prefixEnvVars("L2_SEQUENCE_NUMBER")...),
 	}
 	L2GenesisPath = &cli.StringSliceFlag{
 		Name:    "l2.genesis",
@@ -121,6 +127,12 @@ var (
 			return &out
 		}(),
 	}
+	DepsetConfig = &cli.PathFlag{
+		Name:      "depset.config",
+		Usage:     "Path to the static config dependency set JSON file. Used for interop-enabled games.",
+		EnvVars:   prefixEnvVars("DEPSET_CONFIG"),
+		TakesFile: true,
+	}
 	Exec = &cli.StringFlag{
 		Name:    "exec",
 		Usage:   "Run the specified client program as a separate process detached from the host. Default is to run the client program in the host process.",
@@ -148,6 +160,7 @@ var programFlags = []cli.Flag{
 	L2AgreedPrestate,
 	L2Custom,
 	RollupConfig,
+	L1ChainConfig,
 	Network,
 	DataDir,
 	DataFormat,
@@ -158,6 +171,7 @@ var programFlags = []cli.Flag{
 	L1BeaconAddr,
 	L1TrustRPC,
 	L1RPCProviderKind,
+	DepsetConfig,
 	Exec,
 	Server,
 }

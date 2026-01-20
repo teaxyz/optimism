@@ -18,11 +18,12 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 
 	"github.com/ethereum-optimism/optimism/op-node/rollup"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
+	"github.com/ethereum-optimism/optimism/op-service/ptr"
+	opsigner "github.com/ethereum-optimism/optimism/op-service/signer"
 )
 
 const (
@@ -48,13 +49,17 @@ const (
 // Message domains, the msg id function uncompresses to keep data monomorphic,
 // but invalid compressed data will need a unique different id.
 
-var MessageDomainInvalidSnappy = [4]byte{0, 0, 0, 0}
-var MessageDomainValidSnappy = [4]byte{1, 0, 0, 0}
+var (
+	MessageDomainInvalidSnappy = [4]byte{0, 0, 0, 0}
+	MessageDomainValidSnappy   = [4]byte{1, 0, 0, 0}
+)
 
 type GossipSetupConfigurables interface {
 	PeerScoringParams() *ScoringParams
 	// ConfigureGossip creates configuration options to apply to the GossipSub setup
 	ConfigureGossip(rollupCfg *rollup.Config) []pubsub.Option
+	// GetGossipTimestampThreshold returns the threshold for rejecting gossip messages with old timestamps
+	GetGossipTimestampThreshold() time.Duration
 }
 
 type GossipRuntimeConfig interface {
@@ -259,8 +264,7 @@ func (sb *seenBlocks) markSeen(h common.Hash) {
 	sb.blockHashes = append(sb.blockHashes, h)
 }
 
-func BuildBlocksValidator(log log.Logger, cfg *rollup.Config, runCfg GossipRuntimeConfig, blockVersion eth.BlockVersion) pubsub.ValidatorEx {
-
+func BuildBlocksValidator(log log.Logger, cfg *rollup.Config, runCfg GossipRuntimeConfig, blockVersion eth.BlockVersion, gossipConf GossipSetupConfigurables) pubsub.ValidatorEx {
 	// Seen block hashes per block height
 	// uint64 -> *seenBlocks
 	blockHeightLRU, err := lru.New[uint64, *seenBlocks](1000)
@@ -297,10 +301,11 @@ func BuildBlocksValidator(log log.Logger, cfg *rollup.Config, runCfg GossipRunti
 		}
 
 		// message starts with compact-encoding secp256k1 encoded signature
-		signatureBytes, payloadBytes := data[:65], data[65:]
+		signature := eth.Bytes65(data[:65])
+		payloadBytes := data[65:]
 
 		// [REJECT] if the signature by the sequencer is not valid
-		result := verifyBlockSignature(log, cfg, runCfg, id, signatureBytes, payloadBytes)
+		result := verifyBlockSignature(log, cfg, runCfg, id, signature, payloadBytes)
 		if result != pubsub.ValidationAccept {
 			return result
 		}
@@ -327,9 +332,10 @@ func BuildBlocksValidator(log log.Logger, cfg *rollup.Config, runCfg GossipRunti
 		// rounding down to seconds is fine here.
 		now := uint64(time.Now().Unix())
 
-		// [REJECT] if the `payload.timestamp` is older than 60 seconds in the past
-		if uint64(payload.Timestamp) < now-60 {
-			log.Warn("payload is too old", "timestamp", uint64(payload.Timestamp))
+		// [REJECT] if the `payload.timestamp` is older than the configured threshold
+		threshold := uint64(gossipConf.GetGossipTimestampThreshold().Seconds())
+		if uint64(payload.Timestamp) < now-threshold {
+			log.Warn("payload is too old", "timestamp", uint64(payload.Timestamp), "threshold_seconds", threshold)
 			return pubsub.ValidationReject
 		}
 
@@ -376,15 +382,21 @@ func BuildBlocksValidator(log log.Logger, cfg *rollup.Config, runCfg GossipRunti
 		}
 
 		if blockVersion.HasBlobProperties() {
-			// [REJECT] if the block is on a topic >= V3 and has a blob gas used value that is not zero
-			if payload.BlobGasUsed == nil || *payload.BlobGasUsed != 0 {
-				log.Warn("payload is on v3 topic, but has non-zero blob gas used", "bad_hash", payload.BlockHash.String(), "blob_gas_used", payload.BlobGasUsed)
+			// [REJECT] if the block is on a topic >= V3 and has a nil blob gas used
+			if payload.BlobGasUsed == nil {
+				log.Warn("payload is on v3 topic, but has nil blob gas used", "bad_hash", payload.BlockHash.String())
+				return pubsub.ValidationReject
+				// [REJECT] if the block is on a topic >= V3 and has a non-zero blob gas used field pre-Jovian
+			} else if !cfg.IsDAFootprintBlockLimit(uint64(payload.Timestamp)) && *payload.BlobGasUsed != 0 {
+				log.Warn("payload is on v3 topic, but has non-zero blob gas used",
+					"bad_hash", payload.BlockHash.String(), "blob_gas_used", *payload.BlobGasUsed)
 				return pubsub.ValidationReject
 			}
 
 			// [REJECT] if the block is on a topic >= V3 and has an excess blob gas value that is not zero
 			if payload.ExcessBlobGas == nil || *payload.ExcessBlobGas != 0 {
-				log.Warn("payload is on v3 topic, but has non-zero excess blob gas", "bad_hash", payload.BlockHash.String(), "excess_blob_gas", payload.ExcessBlobGas)
+				log.Warn("payload is on v3 topic, but has non-zero excess blob gas",
+					"bad_hash", payload.BlockHash.String(), "excess_blob_gas", ptr.Str(payload.ExcessBlobGas))
 				return pubsub.ValidationReject
 			}
 		}
@@ -426,30 +438,21 @@ func BuildBlocksValidator(log log.Logger, cfg *rollup.Config, runCfg GossipRunti
 	}
 }
 
-func verifyBlockSignature(log log.Logger, cfg *rollup.Config, runCfg GossipRuntimeConfig, id peer.ID, signatureBytes []byte, payloadBytes []byte) pubsub.ValidationResult {
-	signingHash, err := BlockSigningHash(cfg, payloadBytes)
-	if err != nil {
-		log.Warn("failed to compute block signing hash", "err", err, "peer", id)
-		return pubsub.ValidationReject
+func verifyBlockSignature(log log.Logger, cfg *rollup.Config, runCfg GossipRuntimeConfig, id peer.ID, signature eth.Bytes65, payloadBytes []byte) pubsub.ValidationResult {
+	authCtx := &opsigner.OPStackP2PBlockAuthV1{
+		Allowed: runCfg.P2PSequencerAddress(),
+		Chain:   eth.ChainIDFromBig(cfg.L2ChainID),
 	}
-
-	pub, err := crypto.SigToPub(signingHash[:], signatureBytes)
-	if err != nil {
-		log.Warn("invalid block signature", "err", err, "peer", id)
-		return pubsub.ValidationReject
-	}
-	addr := crypto.PubkeyToAddress(*pub)
-
-	// In the future we may load & validate block metadata before checking the signature.
-	// And then check the signer based on the metadata, to support e.g. multiple p2p signers at the same time.
-	// For now we only have one signer at a time and thus check the address directly.
-	// This means we may drop old payloads upon key rotation,
-	// but this can be recovered from like any other missed unsafe payload.
-	if expected := runCfg.P2PSequencerAddress(); expected == (common.Address{}) {
-		log.Warn("no configured p2p sequencer address, ignoring gossiped block", "peer", id, "addr", addr)
+	if authCtx.Allowed == (common.Address{}) {
+		log.Warn("no configured p2p sequencer address, ignoring gossiped block", "peer", id, "addr", authCtx.Allowed)
 		return pubsub.ValidationIgnore
-	} else if addr != expected {
-		log.Warn("unexpected block author", "err", err, "peer", id, "addr", addr, "expected", expected)
+	}
+	block := opsigner.SignedP2PBlock{
+		Raw:       payloadBytes,
+		Signature: signature,
+	}
+	if err := block.VerifySignature(authCtx); err != nil {
+		log.Warn("invalid block signature", "err", err, "peer", id)
 		return pubsub.ValidationReject
 	}
 	return pubsub.ValidationAccept
@@ -469,7 +472,8 @@ type GossipTopicInfo interface {
 
 type GossipOut interface {
 	GossipTopicInfo
-	PublishL2Payload(ctx context.Context, msg *eth.ExecutionPayloadEnvelope, signer Signer) error
+	SignAndPublishL2Payload(ctx context.Context, msg *eth.ExecutionPayloadEnvelope, signer Signer) error
+	PublishSignedL2Payload(ctx context.Context, signedEnvelope *opsigner.SignedExecutionPayloadEnvelope) error
 	Close() error
 }
 
@@ -508,7 +512,7 @@ type publisher struct {
 var _ GossipOut = (*publisher)(nil)
 
 func combinePeers(allPeers ...[]peer.ID) []peer.ID {
-	var seen = make(map[peer.ID]bool)
+	seen := make(map[peer.ID]bool)
 	var res []peer.ID
 	for _, peers := range allPeers {
 		for _, p := range peers {
@@ -547,7 +551,32 @@ func (p *publisher) BlocksTopicV4Peers() []peer.ID {
 	return p.blocksV4.topic.ListPeers()
 }
 
-func (p *publisher) PublishL2Payload(ctx context.Context, envelope *eth.ExecutionPayloadEnvelope, signer Signer) error {
+func (p *publisher) PublishSignedL2Payload(ctx context.Context, signedEnvelope *opsigner.SignedExecutionPayloadEnvelope) error {
+	res := msgBufPool.Get().(*[]byte)
+	buf := bytes.NewBuffer((*res)[:0])
+	defer func() {
+		*res = buf.Bytes()
+		defer msgBufPool.Put(res)
+	}()
+
+	buf.Write(signedEnvelope.Signature[:])
+
+	if signedEnvelope.Envelope.ParentBeaconBlockRoot != nil {
+		if _, err := signedEnvelope.Envelope.MarshalSSZ(buf); err != nil {
+			return fmt.Errorf("failed to encoded execution payload envelope to publish: %w", err)
+		}
+	} else {
+		if _, err := signedEnvelope.Envelope.ExecutionPayload.MarshalSSZ(buf); err != nil {
+			return fmt.Errorf("failed to encoded execution payload to publish: %w", err)
+		}
+	}
+
+	data := buf.Bytes()
+	timestamp := uint64(signedEnvelope.Envelope.ExecutionPayload.Timestamp)
+	return p.publishRawSignedPayload(ctx, timestamp, data)
+}
+
+func (p *publisher) SignAndPublishL2Payload(ctx context.Context, envelope *eth.ExecutionPayloadEnvelope, signer Signer) error {
 	res := msgBufPool.Get().(*[]byte)
 	buf := bytes.NewBuffer((*res)[:0])
 	defer func() {
@@ -566,24 +595,28 @@ func (p *publisher) PublishL2Payload(ctx context.Context, envelope *eth.Executio
 			return fmt.Errorf("failed to encoded execution payload to publish: %w", err)
 		}
 	}
-
 	data := buf.Bytes()
 	payloadData := data[65:]
-	sig, err := signer.Sign(ctx, SigningDomainBlocksV1, p.cfg.L2ChainID, payloadData)
+	payloadHash := opsigner.PayloadHash(payloadData)
+	chainID := eth.ChainIDFromBig(p.cfg.L2ChainID)
+	sig, err := signer.SignBlockV1(ctx, chainID, payloadHash)
 	if err != nil {
 		return fmt.Errorf("failed to sign execution payload with signer: %w", err)
 	}
 	copy(data[:65], sig[:])
+	return p.publishRawSignedPayload(ctx, uint64(envelope.ExecutionPayload.Timestamp), data)
+}
 
+func (p *publisher) publishRawSignedPayload(ctx context.Context, timestamp uint64, data []byte) error {
 	// compress the full message
 	// This also copies the data, freeing up the original buffer to go back into the pool
 	out := snappy.Encode(nil, data)
 
-	if p.cfg.IsIsthmus(uint64(envelope.ExecutionPayload.Timestamp)) {
+	if p.cfg.IsIsthmus(timestamp) {
 		return p.blocksV4.topic.Publish(ctx, out)
-	} else if p.cfg.IsEcotone(uint64(envelope.ExecutionPayload.Timestamp)) {
+	} else if p.cfg.IsEcotone(timestamp) {
 		return p.blocksV3.topic.Publish(ctx, out)
-	} else if p.cfg.IsCanyon(uint64(envelope.ExecutionPayload.Timestamp)) {
+	} else if p.cfg.IsCanyon(timestamp) {
 		return p.blocksV2.topic.Publish(ctx, out)
 	} else {
 		return p.blocksV1.topic.Publish(ctx, out)
@@ -597,11 +630,11 @@ func (p *publisher) Close() error {
 	return errors.Join(e1, e2)
 }
 
-func JoinGossip(self peer.ID, ps *pubsub.PubSub, log log.Logger, cfg *rollup.Config, runCfg GossipRuntimeConfig, gossipIn GossipIn) (GossipOut, error) {
+func JoinGossip(self peer.ID, ps *pubsub.PubSub, log log.Logger, cfg *rollup.Config, runCfg GossipRuntimeConfig, gossipIn GossipIn, gossipConf GossipSetupConfigurables) (GossipOut, error) {
 	p2pCtx, p2pCancel := context.WithCancel(context.Background())
 
 	v1Logger := log.New("topic", "blocksV1")
-	blocksV1Validator := guardGossipValidator(log, logValidationResult(self, "validated blockv1", v1Logger, BuildBlocksValidator(v1Logger, cfg, runCfg, eth.BlockV1)))
+	blocksV1Validator := guardGossipValidator(log, logValidationResult(self, "validated blockv1", v1Logger, BuildBlocksValidator(v1Logger, cfg, runCfg, eth.BlockV1, gossipConf)))
 	blocksV1, err := newBlockTopic(p2pCtx, blocksTopicV1(cfg), ps, v1Logger, gossipIn, blocksV1Validator)
 	if err != nil {
 		p2pCancel()
@@ -609,7 +642,7 @@ func JoinGossip(self peer.ID, ps *pubsub.PubSub, log log.Logger, cfg *rollup.Con
 	}
 
 	v2Logger := log.New("topic", "blocksV2")
-	blocksV2Validator := guardGossipValidator(log, logValidationResult(self, "validated blockv2", v2Logger, BuildBlocksValidator(v2Logger, cfg, runCfg, eth.BlockV2)))
+	blocksV2Validator := guardGossipValidator(log, logValidationResult(self, "validated blockv2", v2Logger, BuildBlocksValidator(v2Logger, cfg, runCfg, eth.BlockV2, gossipConf)))
 	blocksV2, err := newBlockTopic(p2pCtx, blocksTopicV2(cfg), ps, v2Logger, gossipIn, blocksV2Validator)
 	if err != nil {
 		p2pCancel()
@@ -617,7 +650,7 @@ func JoinGossip(self peer.ID, ps *pubsub.PubSub, log log.Logger, cfg *rollup.Con
 	}
 
 	v3Logger := log.New("topic", "blocksV3")
-	blocksV3Validator := guardGossipValidator(log, logValidationResult(self, "validated blockv3", v3Logger, BuildBlocksValidator(v3Logger, cfg, runCfg, eth.BlockV3)))
+	blocksV3Validator := guardGossipValidator(log, logValidationResult(self, "validated blockv3", v3Logger, BuildBlocksValidator(v3Logger, cfg, runCfg, eth.BlockV3, gossipConf)))
 	blocksV3, err := newBlockTopic(p2pCtx, blocksTopicV3(cfg), ps, v3Logger, gossipIn, blocksV3Validator)
 	if err != nil {
 		p2pCancel()
@@ -625,7 +658,7 @@ func JoinGossip(self peer.ID, ps *pubsub.PubSub, log log.Logger, cfg *rollup.Con
 	}
 
 	v4Logger := log.New("topic", "blocksV4")
-	blocksV4Validator := guardGossipValidator(log, logValidationResult(self, "validated blockv4", v4Logger, BuildBlocksValidator(v4Logger, cfg, runCfg, eth.BlockV4)))
+	blocksV4Validator := guardGossipValidator(log, logValidationResult(self, "validated blockv4", v4Logger, BuildBlocksValidator(v4Logger, cfg, runCfg, eth.BlockV4, gossipConf)))
 	blocksV4, err := newBlockTopic(p2pCtx, blocksTopicV4(cfg), ps, v4Logger, gossipIn, blocksV4Validator)
 	if err != nil {
 		p2pCancel()
@@ -649,7 +682,6 @@ func newBlockTopic(ctx context.Context, topicId string, ps *pubsub.PubSub, log l
 		validator,
 		pubsub.WithValidatorTimeout(3*time.Second),
 		pubsub.WithValidatorConcurrency(4))
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to register gossip topic: %w", err)
 	}
@@ -682,8 +714,10 @@ func newBlockTopic(ctx context.Context, topicId string, ps *pubsub.PubSub, log l
 	}, nil
 }
 
-type TopicSubscriber func(ctx context.Context, sub *pubsub.Subscription)
-type MessageHandler func(ctx context.Context, from peer.ID, msg any) error
+type (
+	TopicSubscriber func(ctx context.Context, sub *pubsub.Subscription)
+	MessageHandler  func(ctx context.Context, from peer.ID, msg any) error
+)
 
 func BlocksHandler(onBlock func(ctx context.Context, from peer.ID, msg *eth.ExecutionPayloadEnvelope) error) MessageHandler {
 	return func(ctx context.Context, from peer.ID, msg any) error {

@@ -4,21 +4,23 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"math/big"
 	"reflect"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 	"github.com/ethereum/go-ethereum/params"
 )
 
 const (
-	BlobSize          = 4096 * 32
-	MaxBlobDataSize   = (4*31+3)*1024 - 4
-	EncodingVersion   = 0
-	VersionOffset     = 1    // offset of the version byte in the blob encoding
-	Rounds            = 1024 // number of encode/decode rounds
-	MaxBlobsPerBlobTx = params.MaxBlobGasPerBlock / params.BlobTxBlobGasPerBlob
+	BlobSize        = 4096 * 32
+	MaxBlobDataSize = (4*31+3)*1024 - 4
+	EncodingVersion = 0
+	VersionOffset   = 1    // offset of the version byte in the blob encoding
+	Rounds          = 1024 // number of encode/decode rounds
 )
 
 var (
@@ -280,3 +282,24 @@ func (b *Blob) Clear() {
 		b[i] = 0
 	}
 }
+
+// CalcBlobFeeCancun calculates the blob fee for the given header using
+// the default blob schedule for Cancun. This function only exists
+// to support the L1 Pectra Blob Schedule Fix. The geth function
+// eip4844.CalcBlobFee should be used instead.
+func CalcBlobFeeCancun(excessBlobGas uint64) *big.Int {
+	// Dummy Cancun header for calculation.
+	cancunHeader := &types.Header{
+		ExcessBlobGas: &excessBlobGas,
+	}
+
+	// Dummy Cancun chain config for calculation.
+	dummyChainCfg := &params.ChainConfig{
+		LondonBlock:        common.Big0,
+		CancunTime:         ptr(uint64(0)),
+		BlobScheduleConfig: params.DefaultBlobSchedule,
+	}
+	return eip4844.CalcBlobFee(dummyChainCfg, cancunHeader)
+}
+
+func ptr[T any](t T) *T { return &t }

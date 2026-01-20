@@ -19,7 +19,7 @@
   },
   {
     "inputs": [],
-    "name": "DISPUTE_GAME_FACTORY_SLOT",
+    "name": "DELAYED_WETH_SLOT",
     "outputs": [
       {
         "internalType": "bytes32",
@@ -188,6 +188,32 @@
   },
   {
     "inputs": [],
+    "name": "daFootprintGasScalar",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "delayedWETH",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "addr_",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "disputeGameFactory",
     "outputs": [
       {
@@ -261,11 +287,6 @@
           },
           {
             "internalType": "address",
-            "name": "disputeGameFactory",
-            "type": "address"
-          },
-          {
-            "internalType": "address",
             "name": "optimismPortal",
             "type": "address"
           },
@@ -273,11 +294,42 @@
             "internalType": "address",
             "name": "optimismMintableERC20Factory",
             "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "delayedWETH",
+            "type": "address"
           }
         ],
         "internalType": "struct SystemConfig.Addresses",
         "name": "",
         "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "guardian",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "initVersion",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
       }
     ],
     "stateMutability": "view",
@@ -376,11 +428,6 @@
           },
           {
             "internalType": "address",
-            "name": "disputeGameFactory",
-            "type": "address"
-          },
-          {
-            "internalType": "address",
             "name": "optimismPortal",
             "type": "address"
           },
@@ -388,16 +435,63 @@
             "internalType": "address",
             "name": "optimismMintableERC20Factory",
             "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "delayedWETH",
+            "type": "address"
           }
         ],
         "internalType": "struct SystemConfig.Addresses",
         "name": "_addresses",
         "type": "tuple"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_l2ChainId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "contract ISuperchainConfig",
+        "name": "_superchainConfig",
+        "type": "address"
       }
     ],
     "name": "initialize",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "isCustomGasToken",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "name": "isFeatureEnabled",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -441,6 +535,19 @@
   },
   {
     "inputs": [],
+    "name": "l2ChainId",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "maximumGasLimit",
     "outputs": [
       {
@@ -454,12 +561,51 @@
   },
   {
     "inputs": [],
+    "name": "minBaseFee",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "minimumGasLimit",
     "outputs": [
       {
         "internalType": "uint64",
         "name": "",
         "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "operatorFeeConstant",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "operatorFeeScalar",
+    "outputs": [
+      {
+        "internalType": "uint32",
+        "name": "",
+        "type": "uint32"
       }
     ],
     "stateMutability": "view",
@@ -507,6 +653,45 @@
   {
     "inputs": [],
     "name": "owner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "paused",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "proxyAdmin",
+    "outputs": [
+      {
+        "internalType": "contract IProxyAdmin",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "proxyAdminOwner",
     "outputs": [
       {
         "internalType": "address",
@@ -585,12 +770,38 @@
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "_batcher",
+        "type": "address"
+      }
+    ],
+    "name": "setBatcherHash",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "bytes32",
         "name": "_batcherHash",
         "type": "bytes32"
       }
     ],
     "name": "setBatcherHash",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "_daFootprintGasScalar",
+        "type": "uint16"
+      }
+    ],
+    "name": "setDAFootprintGasScalar",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -609,6 +820,24 @@
       }
     ],
     "name": "setEIP1559Params",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "_feature",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bool",
+        "name": "_enabled",
+        "type": "bool"
+      }
+    ],
+    "name": "setFeature",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -665,6 +894,37 @@
   {
     "inputs": [
       {
+        "internalType": "uint64",
+        "name": "_minBaseFee",
+        "type": "uint64"
+      }
+    ],
+    "name": "setMinBaseFee",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint32",
+        "name": "_operatorFeeScalar",
+        "type": "uint32"
+      },
+      {
+        "internalType": "uint64",
+        "name": "_operatorFeeConstant",
+        "type": "uint64"
+      }
+    ],
+    "name": "setOperatorFeeScalars",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
         "name": "_unsafeBlockSigner",
         "type": "address"
@@ -683,6 +943,19 @@
         "internalType": "uint256",
         "name": "startBlock_",
         "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "superchainConfig",
+    "outputs": [
+      {
+        "internalType": "contract ISuperchainConfig",
+        "name": "",
+        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -756,6 +1029,25 @@
     "anonymous": false,
     "inputs": [
       {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "feature",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "bool",
+        "name": "enabled",
+        "type": "bool"
+      }
+    ],
+    "name": "FeatureSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
         "indexed": false,
         "internalType": "uint8",
         "name": "version",
@@ -783,5 +1075,45 @@
     ],
     "name": "OwnershipTransferred",
     "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "ProxyAdminOwnedBase_NotProxyAdmin",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ProxyAdminOwnedBase_NotProxyAdminOrProxyAdminOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ProxyAdminOwnedBase_NotProxyAdminOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ProxyAdminOwnedBase_NotResolvedDelegateProxy",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ProxyAdminOwnedBase_NotSharedProxyAdminOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ProxyAdminOwnedBase_ProxyAdminNotFound",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ReinitializableBase_ZeroInitVersion",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "SystemConfig_InvalidFeatureState",
+    "type": "error"
   }
 ]

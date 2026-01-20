@@ -7,20 +7,21 @@ import { IFaultDisputeGame } from "interfaces/dispute/IFaultDisputeGame.sol";
 import { IDisputeGameFactory } from "interfaces/dispute/IDisputeGameFactory.sol";
 import { BaseDeployIO } from "scripts/deploy/BaseDeployIO.sol";
 import { GameType } from "src/dispute/lib/Types.sol";
-import { IOptimismPortal2 } from "interfaces/L1/IOptimismPortal2.sol";
+import { IAnchorStateRegistry } from "interfaces/dispute/IAnchorStateRegistry.sol";
 
 contract SetDisputeGameImplInput is BaseDeployIO {
     IDisputeGameFactory internal _factory;
-    IOptimismPortal2 internal _portal;
+    IAnchorStateRegistry internal _anchorStateRegistry;
     IFaultDisputeGame internal _impl;
     uint32 internal _gameType;
+    bytes internal _gameArgs;
 
     // Setter for address type
     function set(bytes4 _sel, address _addr) public {
         require(_addr != address(0), "SetDisputeGameImplInput: cannot set zero address");
 
         if (_sel == this.factory.selector) _factory = IDisputeGameFactory(_addr);
-        else if (_sel == this.portal.selector) _portal = IOptimismPortal2(payable(_addr));
+        else if (_sel == this.anchorStateRegistry.selector) _anchorStateRegistry = IAnchorStateRegistry(_addr);
         else if (_sel == this.impl.selector) _impl = IFaultDisputeGame(_addr);
         else revert("SetDisputeGameImplInput: unknown selector");
     }
@@ -31,13 +32,18 @@ contract SetDisputeGameImplInput is BaseDeployIO {
         else revert("SetDisputeGameImplInput: unknown selector");
     }
 
+    function set(bytes4 _sel, bytes memory _value) public {
+        if (_sel == this.gameArgs.selector) _gameArgs = bytes(_value);
+        else revert("SetDisputeGameImplInput: unknown selector");
+    }
+
     function factory() public view returns (IDisputeGameFactory) {
         require(address(_factory) != address(0), "SetDisputeGameImplInput: not set");
         return _factory;
     }
 
-    function portal() public view returns (IOptimismPortal2) {
-        return _portal;
+    function anchorStateRegistry() public view returns (IAnchorStateRegistry) {
+        return _anchorStateRegistry;
     }
 
     function impl() public view returns (IFaultDisputeGame) {
@@ -48,6 +54,10 @@ contract SetDisputeGameImplInput is BaseDeployIO {
     function gameType() public view returns (uint32) {
         return _gameType;
     }
+
+    function gameArgs() public view returns (bytes memory) {
+        return _gameArgs;
+    }
 }
 
 contract SetDisputeGameImpl is Script {
@@ -57,15 +67,21 @@ contract SetDisputeGameImpl is Script {
         require(address(factory.gameImpls(gameType)) == address(0), "SDGI-10");
 
         IFaultDisputeGame impl = _input.impl();
-        IOptimismPortal2 portal = _input.portal();
+        IAnchorStateRegistry anchorStateRegistry = _input.anchorStateRegistry();
+        bytes memory gameArgs = _input.gameArgs();
 
-        vm.broadcast(msg.sender);
-        factory.setImplementation(gameType, impl);
-
-        if (address(portal) != address(0)) {
-            require(address(portal.disputeGameFactory()) == address(factory), "SDGI-20");
+        if (gameArgs.length > 0) {
             vm.broadcast(msg.sender);
-            portal.setRespectedGameType(gameType);
+            factory.setImplementation(gameType, impl, gameArgs);
+        } else {
+            vm.broadcast(msg.sender);
+            factory.setImplementation(gameType, impl);
+        }
+
+        if (address(anchorStateRegistry) != address(0)) {
+            require(address(anchorStateRegistry.disputeGameFactory()) == address(factory), "SDGI-20");
+            vm.broadcast(msg.sender);
+            anchorStateRegistry.setRespectedGameType(gameType);
         }
 
         assertValid(_input);
@@ -75,9 +91,12 @@ contract SetDisputeGameImpl is Script {
         GameType gameType = GameType.wrap(_input.gameType());
         require(address(_input.factory().gameImpls(gameType)) == address(_input.impl()), "SDGI-30");
 
-        if (address(_input.portal()) != address(0)) {
-            require(address(_input.portal().disputeGameFactory()) == address(_input.factory()), "SDGI-40");
-            require(GameType.unwrap(_input.portal().respectedGameType()) == GameType.unwrap(gameType), "SDGI-50");
+        if (address(_input.anchorStateRegistry()) != address(0)) {
+            require(address(_input.anchorStateRegistry().disputeGameFactory()) == address(_input.factory()), "SDGI-40");
+            require(
+                GameType.unwrap(_input.anchorStateRegistry().respectedGameType()) == GameType.unwrap(gameType),
+                "SDGI-50"
+            );
         }
     }
 }

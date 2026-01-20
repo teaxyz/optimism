@@ -163,55 +163,6 @@ func TestRetryingL1BlobSource(t *testing.T) {
 		require.Equal(t, len(result), 1)
 		require.Equal(t, blob[:], result[0][:])
 	})
-
-	t.Run("GetBlobSidecars Success", func(t *testing.T) {
-		source, mock := createL1BlobSource(t)
-		defer mock.AssertExpectations(t)
-		mock.ExpectOnGetBlobSidecars(
-			ctx,
-			l1BlockRef,
-			[]eth.IndexedBlobHash{blobHash},
-			(eth.Bytes48)(commitment),
-			[]*eth.Blob{(*eth.Blob)(&blob)},
-			nil,
-		)
-
-		result, err := source.GetBlobSidecars(ctx, l1BlockRef, []eth.IndexedBlobHash{blobHash})
-		require.NoError(t, err)
-		require.Equal(t, len(result), 1)
-		require.Equal(t, blob[:], result[0].Blob[:])
-		require.Equal(t, blobHash.Index, uint64(result[0].Index))
-		require.Equal(t, (eth.Bytes48)(commitment), result[0].KZGCommitment)
-	})
-
-	t.Run("GetBlobSidecars Error", func(t *testing.T) {
-		source, mock := createL1BlobSource(t)
-		defer mock.AssertExpectations(t)
-		expectedErr := errors.New("boom")
-		mock.ExpectOnGetBlobSidecars(
-			ctx,
-			l1BlockRef,
-			[]eth.IndexedBlobHash{blobHash},
-			(eth.Bytes48)(commitment),
-			[]*eth.Blob{(*eth.Blob)(&blob)},
-			expectedErr,
-		)
-		mock.ExpectOnGetBlobSidecars(
-			ctx,
-			l1BlockRef,
-			[]eth.IndexedBlobHash{blobHash},
-			(eth.Bytes48)(commitment),
-			[]*eth.Blob{(*eth.Blob)(&blob)},
-			nil,
-		)
-
-		result, err := source.GetBlobSidecars(ctx, l1BlockRef, []eth.IndexedBlobHash{blobHash})
-		require.NoError(t, err)
-		require.Equal(t, len(result), 1)
-		require.Equal(t, blob[:], result[0].Blob[:])
-		require.Equal(t, blobHash.Index, uint64(result[0].Index))
-		require.Equal(t, (eth.Bytes48)(commitment), result[0].KZGCommitment)
-	})
 }
 
 func createL1BlobSource(t *testing.T) (*RetryingL1BlobSource, *testutils.MockBlobsFetcher) {
@@ -385,6 +336,15 @@ func (m *MockL2Source) ExperimentalEnabled() bool {
 func (m *MockL2Source) RollupConfig() *rollup.Config {
 	out := m.Mock.MethodCalled("RollupConfig")
 	return out[0].(*rollup.Config)
+}
+
+func (m *MockL2Source) PayloadExecutionWitness(ctx context.Context, parentHash common.Hash, payloadAttributes eth.PayloadAttributes) (*eth.ExecutionWitness, error) {
+	out := m.Mock.MethodCalled("PayloadExecutionWitness", parentHash, payloadAttributes)
+	return out[0].(*eth.ExecutionWitness), *out[1].(*error)
+}
+func (m *MockL2Source) GetProof(ctx context.Context, address common.Address, storage []common.Hash, blockTag string) (*eth.AccountResult, error) {
+	out := m.Mock.MethodCalled("GetProof", address, storage, blockTag)
+	return out[0].(*eth.AccountResult), *out[1].(*error)
 }
 
 func (m *MockL2Source) InfoAndTxsByHash(ctx context.Context, blockHash common.Hash) (eth.BlockInfo, types.Transactions, error) {

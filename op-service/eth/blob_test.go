@@ -1,9 +1,14 @@
 package eth
 
 import (
+	"math/big"
 	"math/rand"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/params"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -289,5 +294,55 @@ func TestExtraneousData(t *testing.T) {
 		b[i] = 1
 		decoded, err := b.ToData()
 		require.ErrorIs(t, err, ErrBlobExtraneousData, len(decoded))
+	}
+}
+
+func TestCalcBlobFeeCancun(t *testing.T) {
+	cancunBlobFee := CalcBlobFeeCancun(uint64(20 * params.DefaultCancunBlobConfig.UpdateFraction))
+	require.Equal(t, big.NewInt(485165195), cancunBlobFee)
+}
+
+// TestCalcBlobFeeAcrossForksWithFixedExcess tests the blob base fee calculation for different forks.
+// Using the Sepolia chain config.
+func TestCalcBlobFeeAcrossForksWithFixedExcess(t *testing.T) {
+	excess := uint64(40_000_000)
+	header := &types.Header{ExcessBlobGas: &excess, Time: 1754904516, Number: big.NewInt(1)}
+	cfg := params.SepoliaChainConfig
+	tests := []struct {
+		name      string
+		blockTime uint64
+		wantBF    int64
+	}{
+		{
+			name:      "Cancun",
+			blockTime: *cfg.CancunTime,
+			wantBF:    159773,
+		},
+		{
+			name:      "Prague",
+			blockTime: *cfg.PragueTime,
+			wantBF:    2944,
+		},
+		{
+			name:      "Osaka",
+			blockTime: *cfg.OsakaTime,
+			wantBF:    2944,
+		},
+		{
+			name:      "BPO1",
+			blockTime: *cfg.BPO1Time,
+			wantBF:    120,
+		},
+		{
+			name:      "BPO2",
+			blockTime: *cfg.BPO2Time,
+			wantBF:    30,
+		},
+	}
+
+	for _, tt := range tests {
+		header.Time = tt.blockTime
+		bf := eip4844.CalcBlobFee(cfg, header)
+		assert.Equal(t, tt.wantBF, bf.Int64())
 	}
 }

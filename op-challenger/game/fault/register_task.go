@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"time"
 
 	"github.com/ethereum-optimism/optimism/op-challenger/config"
 	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/claims"
@@ -51,10 +52,29 @@ type RegisterTask struct {
 }
 
 func NewSuperCannonRegisterTask(gameType faultTypes.GameType, cfg *config.Config, m caching.Metrics, serverExecutor vm.OracleServerExecutor, rootProvider super.RootProvider, syncValidator *super.SyncValidator) *RegisterTask {
-	stateConverter := cannon.NewStateConverter(cfg.Cannon)
+	return newSuperCannonVMRegisterTaskWithConfig(gameType, cfg, m, serverExecutor, rootProvider, syncValidator, cfg.Cannon, cfg.CannonAbsolutePreStateBaseURL, cfg.CannonAbsolutePreState)
+}
+
+func NewSuperCannonKonaRegisterTask(gameType faultTypes.GameType, cfg *config.Config, m caching.Metrics, serverExecutor vm.OracleServerExecutor, rootProvider super.RootProvider, syncValidator *super.SyncValidator) *RegisterTask {
+	return newSuperCannonVMRegisterTaskWithConfig(gameType, cfg, m, serverExecutor, rootProvider, syncValidator, cfg.CannonKona, cfg.CannonKonaAbsolutePreStateBaseURL, cfg.CannonKonaAbsolutePreState)
+}
+
+func newSuperCannonVMRegisterTaskWithConfig(
+	gameType faultTypes.GameType,
+	cfg *config.Config,
+	m caching.Metrics,
+	serverExecutor vm.OracleServerExecutor,
+	rootProvider super.RootProvider,
+	syncValidator SyncValidator,
+	vmCfg vm.Config,
+	preStateBaseURL *url.URL,
+	preState string,
+) *RegisterTask {
+	stateConverter := cannon.NewStateConverter(vmCfg)
 	return &RegisterTask{
-		gameType:      gameType,
-		syncValidator: syncValidator,
+		gameType:               gameType,
+		syncValidator:          syncValidator,
+		skipPrestateValidation: gameType == faultTypes.SuperPermissionedGameType,
 		getTopPrestateProvider: func(ctx context.Context, prestateTimestamp uint64) (faultTypes.PrestateProvider, error) {
 			return super.NewSuperRootPrestateProvider(rootProvider, prestateTimestamp), nil
 		},
@@ -62,8 +82,8 @@ func NewSuperCannonRegisterTask(gameType faultTypes.GameType, cfg *config.Config
 			gameType,
 			stateConverter,
 			m,
-			cfg.CannonAbsolutePreStateBaseURL,
-			cfg.CannonAbsolutePreState,
+			preStateBaseURL,
+			preState,
 			filepath.Join(cfg.Datadir, "super-cannon-prestates"),
 			func(ctx context.Context, path string) faultTypes.PrestateProvider {
 				return vm.NewPrestateProvider(path, stateConverter)
@@ -80,12 +100,31 @@ func NewSuperCannonRegisterTask(gameType faultTypes.GameType, cfg *config.Config
 			poststateBlock uint64) (*trace.Accessor, error) {
 			provider := vmPrestateProvider.(*vm.PrestateProvider)
 			preimagePrestateProvider := prestateProvider.(super.PreimagePrestateProvider)
-			return super.NewSuperCannonTraceAccessor(logger, m, cfg.Cannon, serverExecutor, preimagePrestateProvider, rootProvider, provider.PrestatePath(), dir, l1Head, splitDepth, prestateBlock, poststateBlock)
+			return super.NewSuperCannonTraceAccessor(logger, m, vmCfg, serverExecutor, preimagePrestateProvider, rootProvider, provider.PrestatePath(), dir, l1Head, splitDepth, prestateBlock, poststateBlock)
 		},
 	}
 }
 
 func NewCannonRegisterTask(gameType faultTypes.GameType, cfg *config.Config, m caching.Metrics, serverExecutor vm.OracleServerExecutor, l2Client utils.L2HeaderSource, rollupClient outputs.OutputRollupClient, syncValidator SyncValidator) *RegisterTask {
+	return newCannonVMRegisterTaskWithConfig(gameType, cfg, m, serverExecutor, l2Client, rollupClient, syncValidator, cfg.Cannon, cfg.CannonAbsolutePreStateBaseURL, cfg.CannonAbsolutePreState)
+}
+
+func NewCannonKonaRegisterTask(gameType faultTypes.GameType, cfg *config.Config, m caching.Metrics, serverExecutor vm.OracleServerExecutor, l2Client utils.L2HeaderSource, rollupClient outputs.OutputRollupClient, syncValidator SyncValidator) *RegisterTask {
+	return newCannonVMRegisterTaskWithConfig(gameType, cfg, m, serverExecutor, l2Client, rollupClient, syncValidator, cfg.CannonKona, cfg.CannonKonaAbsolutePreStateBaseURL, cfg.CannonKonaAbsolutePreState)
+}
+
+func newCannonVMRegisterTaskWithConfig(
+	gameType faultTypes.GameType,
+	cfg *config.Config,
+	m caching.Metrics,
+	serverExecutor vm.OracleServerExecutor,
+	l2Client utils.L2HeaderSource,
+	rollupClient outputs.OutputRollupClient,
+	syncValidator SyncValidator,
+	vmCfg vm.Config,
+	preStateBaseURL *url.URL,
+	preState string,
+) *RegisterTask {
 	stateConverter := cannon.NewStateConverter(cfg.Cannon)
 	return &RegisterTask{
 		gameType:      gameType,
@@ -101,9 +140,9 @@ func NewCannonRegisterTask(gameType faultTypes.GameType, cfg *config.Config, m c
 			gameType,
 			stateConverter,
 			m,
-			cfg.CannonAbsolutePreStateBaseURL,
-			cfg.CannonAbsolutePreState,
-			filepath.Join(cfg.Datadir, "cannon-prestates"),
+			preStateBaseURL,
+			preState,
+			filepath.Join(cfg.Datadir, vmCfg.VmType.String()+"-prestates"),
 			func(ctx context.Context, path string) faultTypes.PrestateProvider {
 				return vm.NewPrestateProvider(path, stateConverter)
 			}),
@@ -118,7 +157,7 @@ func NewCannonRegisterTask(gameType faultTypes.GameType, cfg *config.Config, m c
 			prestateBlock uint64,
 			poststateBlock uint64) (*trace.Accessor, error) {
 			provider := vmPrestateProvider.(*vm.PrestateProvider)
-			return outputs.NewOutputCannonTraceAccessor(logger, m, cfg.Cannon, serverExecutor, l2Client, prestateProvider, provider.PrestatePath(), rollupClient, dir, l1Head, splitDepth, prestateBlock, poststateBlock)
+			return outputs.NewOutputCannonTraceAccessor(logger, m, vmCfg, serverExecutor, l2Client, prestateProvider, provider.PrestatePath(), rollupClient, dir, l1Head, splitDepth, prestateBlock, poststateBlock)
 		},
 	}
 }
@@ -191,6 +230,42 @@ func NewAsteriscKonaRegisterTask(gameType faultTypes.GameType, cfg *config.Confi
 	}
 }
 
+func NewSuperAsteriscKonaRegisterTask(gameType faultTypes.GameType, cfg *config.Config, m caching.Metrics, serverExecutor vm.OracleServerExecutor, rootProvider super.RootProvider, syncValidator *super.SyncValidator) *RegisterTask {
+	stateConverter := asterisc.NewStateConverter(cfg.AsteriscKona)
+	return &RegisterTask{
+		gameType:               gameType,
+		syncValidator:          syncValidator,
+		skipPrestateValidation: gameType == faultTypes.SuperPermissionedGameType,
+		getTopPrestateProvider: func(ctx context.Context, prestateTimestamp uint64) (faultTypes.PrestateProvider, error) {
+			return super.NewSuperRootPrestateProvider(rootProvider, prestateTimestamp), nil
+		},
+		getBottomPrestateProvider: cachePrestates(
+			gameType,
+			stateConverter,
+			m,
+			cfg.AsteriscKonaAbsolutePreStateBaseURL,
+			cfg.AsteriscKonaAbsolutePreState,
+			filepath.Join(cfg.Datadir, "super-asterisc-kona-prestates"),
+			func(ctx context.Context, path string) faultTypes.PrestateProvider {
+				return vm.NewPrestateProvider(path, stateConverter)
+			}),
+		newTraceAccessor: func(
+			logger log.Logger,
+			m metrics.Metricer,
+			prestateProvider faultTypes.PrestateProvider,
+			vmPrestateProvider faultTypes.PrestateProvider,
+			dir string,
+			l1Head eth.BlockID,
+			splitDepth faultTypes.Depth,
+			prestateBlock uint64,
+			poststateBlock uint64) (*trace.Accessor, error) {
+			provider := vmPrestateProvider.(*vm.PrestateProvider)
+			preimagePrestateProvider := prestateProvider.(super.PreimagePrestateProvider)
+			return super.NewSuperAsteriscKonaTraceAccessor(logger, m, cfg.AsteriscKona, serverExecutor, preimagePrestateProvider, rootProvider, provider.PrestatePath(), dir, l1Head, splitDepth, prestateBlock, poststateBlock)
+		},
+	}
+}
+
 func NewAlphabetRegisterTask(gameType faultTypes.GameType, l2Client utils.L2HeaderSource, rollupClient outputs.OutputRollupClient, syncValidator SyncValidator) *RegisterTask {
 	return &RegisterTask{
 		gameType:      gameType,
@@ -250,7 +325,9 @@ func (e *RegisterTask) Register(
 	caller *batching.MultiCaller,
 	l1HeaderSource L1HeaderSource,
 	selective bool,
-	claimants []common.Address) error {
+	claimants []common.Address,
+	responseDelay time.Duration,
+	responseDelayAfter uint64) error {
 
 	playerCreator := func(game types.GameMetadata, dir string) (scheduler.GamePlayer, error) {
 		contract, err := contracts.NewFaultDisputeGameContract(ctx, m, game.Proxy, caller)
@@ -272,7 +349,7 @@ func (e *RegisterTask) Register(
 			return nil, fmt.Errorf("failed to load oracle for game %v: %w", game.Proxy, err)
 		}
 		oracles.RegisterOracle(oracle)
-		prestateBlock, poststateBlock, err := contract.GetBlockRange(ctx)
+		prestateBlock, poststateBlock, err := contract.GetGameRange(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -300,9 +377,9 @@ func (e *RegisterTask) Register(
 			validators = append(validators, NewPrestateValidator(e.gameType.String(), contract.GetAbsolutePrestateHash, vmPrestateProvider))
 			validators = append(validators, NewPrestateValidator("output root", contract.GetStartingRootHash, prestateProvider))
 		}
-		return NewGamePlayer(ctx, systemClock, l1Clock, logger, m, dir, game.Proxy, txSender, contract, e.syncValidator, validators, creator, l1HeaderSource, selective, claimants)
+		return NewGamePlayer(ctx, systemClock, l1Clock, logger, m, dir, game.Proxy, txSender, contract, e.syncValidator, validators, creator, l1HeaderSource, selective, claimants, responseDelay, responseDelayAfter)
 	}
-	err := registerOracle(ctx, logger, m, oracles, gameFactory, caller, e.gameType)
+	err := registerOracle(ctx, logger, oracles, gameFactory, e.gameType)
 	if err != nil {
 		return err
 	}
@@ -315,20 +392,21 @@ func (e *RegisterTask) Register(
 	return nil
 }
 
-func registerOracle(ctx context.Context, logger log.Logger, m metrics.Metricer, oracles OracleRegistry, gameFactory *contracts.DisputeGameFactoryContract, caller *batching.MultiCaller, gameType faultTypes.GameType) error {
-	implAddr, err := gameFactory.GetGameImpl(ctx, gameType)
+func registerOracle(ctx context.Context, logger log.Logger, oracles OracleRegistry, gameFactory *contracts.DisputeGameFactoryContract, gameType faultTypes.GameType) error {
+	// Check that there is an implementation set for this game type and skip if not.
+	hasImpl, err := gameFactory.HasGameImpl(ctx, gameType)
 	if err != nil {
-		return fmt.Errorf("failed to load implementation for game type %v: %w", gameType, err)
+		return fmt.Errorf("failed to check implementation for game type %v: %w", gameType, err)
 	}
-	if implAddr == (common.Address{}) {
+	if !hasImpl {
 		logger.Warn("No game implementation set for game type", "gameType", gameType)
 		return nil
 	}
-	contract, err := contracts.NewFaultDisputeGameContract(ctx, m, implAddr, caller)
+	vmContract, err := gameFactory.GetGameVm(ctx, gameType)
 	if err != nil {
-		return fmt.Errorf("failed to create fault dispute game contracts: %w", err)
+		return fmt.Errorf("failed to get vm for game type %v: %w", gameType, err)
 	}
-	oracle, err := contract.GetOracle(ctx)
+	oracle, err := vmContract.Oracle(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to load oracle address: %w", err)
 	}

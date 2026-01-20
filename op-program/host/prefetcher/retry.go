@@ -75,16 +75,6 @@ func NewRetryingL1BlobSource(logger log.Logger, source L1BlobSource) *RetryingL1
 	}
 }
 
-func (s *RetryingL1BlobSource) GetBlobSidecars(ctx context.Context, ref eth.L1BlockRef, hashes []eth.IndexedBlobHash) ([]*eth.BlobSidecar, error) {
-	return retry.Do(ctx, maxAttempts, s.strategy, func() ([]*eth.BlobSidecar, error) {
-		sidecars, err := s.source.GetBlobSidecars(ctx, ref, hashes)
-		if err != nil {
-			s.logger.Warn("Failed to retrieve blob sidecars", "ref", ref, "err", err)
-		}
-		return sidecars, err
-	})
-}
-
 func (s *RetryingL1BlobSource) GetBlobs(ctx context.Context, ref eth.L1BlockRef, hashes []eth.IndexedBlobHash) ([]*eth.Blob, error) {
 	return retry.Do(ctx, maxAttempts, s.strategy, func() ([]*eth.Blob, error) {
 		blobs, err := s.source.GetBlobs(ctx, ref, hashes)
@@ -171,6 +161,16 @@ func (s *RetryingL2Source) OutputByNumber(ctx context.Context, blockNum uint64) 
 		}
 		return o, nil
 	})
+}
+
+func (s *RetryingL2Source) GetProof(ctx context.Context, address common.Address, storage []common.Hash, blockTag string) (*eth.AccountResult, error) {
+	// these aren't retried because they are currently experimental and can be slow
+	return s.source.GetProof(ctx, address, storage, blockTag)
+}
+
+func (s *RetryingL2Source) PayloadExecutionWitness(ctx context.Context, parentHash common.Hash, payloadAttributes eth.PayloadAttributes) (*eth.ExecutionWitness, error) {
+	// these aren't retried because they are currently experimental and can be slow
+	return s.source.PayloadExecutionWitness(ctx, parentHash, payloadAttributes)
 }
 
 func NewRetryingL2Source(logger log.Logger, source hosttypes.L2Source) *RetryingL2Source {
